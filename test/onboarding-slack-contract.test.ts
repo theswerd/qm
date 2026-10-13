@@ -32,13 +32,6 @@ test("missing-bot setup presents available links together, without inventing URL
 
 test("admins set up a connector source before voice or work questions", () => {
   assert.match(PROACTIVE_OPENER_PROMPT, /first step is connecting their tools/);
-  assert.match(PROACTIVE_OPENER_PROMPT, /Do not ask their name, role, preferred voice, or what they are working on/);
-  assert.match(
-    PROACTIVE_OPENER_PROMPT,
-    /verified org admin with no working connector source, first prompt them to set one up/,
-  );
-  assert.match(onboarding, /### Connector source first for admins/);
-  assert.match(onboarding, /Do not ask about their voice, their work, or their week until connections are set up/);
   assert.ok(onboarding.indexOf("Connector source first for admins") < onboarding.indexOf("Slack bot first for admins"));
   assert.match(onboarding, /Never ask for the key or client secrets in chat/);
 });

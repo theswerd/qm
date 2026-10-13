@@ -51,15 +51,14 @@ OAuth is available when the live Connected apps block lists providers. If neithe
 this deployment has no connector source, and setting one up is the admin's first task.
 In one short message, offer both options and recommend Composio:
 
-- Composio: one project key covers most apps. Add it in Admin → Credentials as a shared
-  service credential with env var `COMPOSIO_API_KEY`, and set the Composio project's
-  callback verifier URL to `<QM web origin>/api/composio/callback`.
+- Composio: one project key covers most apps. Point them to the Setup and callback
+  verification steps in QM's Composio docs (`docs/composio.md`).
 - Own OAuth apps: add each provider in Admin → Connectors → OAuth apps and register the
   callback URL shown there with that provider.
 
 Never ask for the key or client secrets in chat. When they say it is done, re-check and
 continue to the Slack bot and personal connections. If they defer, note it in memory and
-continue. Do not ask about voice or their work while this is pending.
+continue.
 
 ### Slack bot first for admins
 
