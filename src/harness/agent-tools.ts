@@ -4161,8 +4161,11 @@ export function createAgentTools(ref: ToolContextRef, opts?: AgentToolsOptions):
               callId,
               { tool: d.name, client: true },
               {
-                ...text(outcome.content || "[empty result]"),
-                ...(outcome.structured === undefined ? {} : { details: { structured: outcome.structured } }),
+                content: [
+                  ...text(outcome.content || "[empty result]").content,
+                  ...(outcome.images ?? []).map((image) => ({ type: "image" as const, ...image })),
+                ],
+                details: outcome.structured === undefined ? {} : { structured: outcome.structured },
               },
               "client page",
               undefined,

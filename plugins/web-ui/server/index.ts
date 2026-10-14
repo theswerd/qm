@@ -2472,6 +2472,7 @@ const apiRoutes: readonly WebRoute[] = [
       let approval: { requestId: string; approved: boolean; scope?: string } | undefined;
       let proactiveOpener = false;
       let idempotencyKey: string | undefined;
+      let clientTools: unknown[] | undefined;
       try {
         const p = JSON.parse(await readBody(req));
         text = String(p.text ?? "");
@@ -2483,6 +2484,7 @@ const apiRoutes: readonly WebRoute[] = [
         )
           idempotencyKey = `web:${user}:${p.clientTurnId}`;
         if (p.proactiveOpener === true) proactiveOpener = true;
+        if (Array.isArray(p.clientTools) && p.clientTools.length) clientTools = p.clientTools;
         if (p.approval && typeof p.approval.requestId === "string" && typeof p.approval.approved === "boolean") {
           approval = {
             requestId: p.approval.requestId,
@@ -2537,6 +2539,7 @@ const apiRoutes: readonly WebRoute[] = [
         ...(approval ? { approval } : {}),
         ...(proactiveOpener ? { proactiveOpener: true } : {}),
         ...(idempotencyKey ? { idempotencyKey } : {}),
+        ...(clientTools ? { clientTools } : {}),
       };
       return postTurnAndMint(req, res, turn, user, threadRef);
     },
@@ -2635,9 +2638,18 @@ const apiRoutes: readonly WebRoute[] = [
         scopeId?: unknown;
         channelName?: unknown;
         queuedRunId?: unknown;
+        callId?: unknown;
+        result?: unknown;
       }>(req, res, false);
       if (!p) return;
       const kind = typeof p.kind === "string" ? p.kind : "";
+      if (kind === "client_result")
+        return relayCore(
+          res,
+          "POST",
+          `/v1/runs/${encodeURIComponent(id)}/signal`,
+          JSON.stringify({ kind, callId: p.callId, result: p.result }),
+        );
       const text = typeof p.text === "string" ? p.text : undefined;
       const threadRef =
         typeof p.threadRef === "string" &&

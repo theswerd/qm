@@ -44,13 +44,14 @@ fn run(args: &[String]) -> Result<(), String> {
         Some("allow") => return allow(&arg(1)?),
         Some("permissions") => Command::Permissions { prompt: args.iter().any(|a| a == "--prompt") },
         Some("apps") => Command::Apps,
-        Some("observe") => Command::Observe { app: arg(1)?, screenshot: png.is_some() },
+        Some("observe") => Command::Observe { app: arg(1)?, screenshot: png.is_some(), diff: false },
         Some("act") => Command::Act {
             app: arg(1)?,
             actions: serde_json::from_str(&arg(2)?).map_err(|e| format!("bad actions json: {e}"))?,
             observe: true,
             screenshot: png.is_some(),
             pace: false,
+            diff: false,
         },
         _ => return Err(USAGE.into()),
     };

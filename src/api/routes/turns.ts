@@ -58,7 +58,15 @@ const clientToolsSchema = z
 
 const clientResultSchema = z.object({
   callId: z.string().min(1).max(256),
-  result: z.object({ content: z.string(), structured: z.unknown().optional(), isError: z.boolean().optional() }),
+  result: z.object({
+    content: z.string(),
+    structured: z.unknown().optional(),
+    images: z
+      .array(z.object({ mimeType: z.enum(["image/png", "image/jpeg"]), data: z.base64().max(900_000) }))
+      .max(4)
+      .optional(),
+    isError: z.boolean().optional(),
+  }),
 });
 
 function zodMessage(field: string, error: z.ZodError): string {

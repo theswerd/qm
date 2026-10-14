@@ -14,8 +14,14 @@ use core_graphics::window::{
     create_image, kCGWindowImageBoundsIgnoreFraming, kCGWindowImageNominalResolution, kCGWindowListOptionIncludingWindow,
 };
 use foreign_types::ForeignType;
-use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
-use std::collections::HashMap;
+use objc2::rc::Retained;
+use objc2::runtime::ProtocolObject;
+use objc2_app_kit::{
+    NSApplicationActivationPolicy, NSPasteboard, NSPasteboardItem, NSPasteboardTypeHTML, NSPasteboardTypeString, NSPasteboardWriting,
+    NSWorkspace,
+};
+use objc2_foundation::{NSArray, NSString};
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::time::Duration;
 
@@ -31,6 +37,7 @@ extern "C" {
     fn AXUIElementPerformAction(e: CFTypeRef, a: CFStringRef) -> i32;
     fn AXUIElementSetMessagingTimeout(e: CFTypeRef, t: f32) -> i32;
     fn AXValueGetValue(v: CFTypeRef, kind: u32, out: *mut c_void) -> bool;
+    fn AXValueCreate(kind: u32, value: *const c_void) -> CFTypeRef;
     fn AXIsProcessTrusted() -> bool;
     fn AXIsProcessTrustedWithOptions(o: CFTypeRef) -> bool;
     fn _AXUIElementGetWindow(e: CFTypeRef, id: *mut u32) -> i32;
@@ -43,9 +50,15 @@ extern "C" {
     fn CGEventSetLocation(e: *mut c_void, p: CGPoint);
 }
 
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFHash(cf: CFTypeRef) -> usize;
+}
+
 const MAX_NODES: usize = 800;
 const MAX_DEPTH: usize = 60;
 const BORING: &[&str] = &["AXShowMenu", "AXScrollToVisible", "AXShowDefaultUI", "AXShowAlternateUI"];
+const BUSY: &[&str] = &["AXBusyIndicator", "AXProgressIndicator"];
 
 struct App {
     name: String,
@@ -55,8 +68,11 @@ struct App {
 }
 
 struct Snapshot {
-    elements: Vec<El>,
+    window: u32,
     origin: (f64, f64),
+    elements: Vec<(u32, El)>,
+    lines: HashMap<u32, String>,
+    next: u32,
 }
 
 #[derive(Default)]
@@ -170,8 +186,9 @@ fn post(e: CGEvent, pid: i32) {
     std::thread::sleep(Duration::from_millis(8));
 }
 
-fn mouse(pid: i32, win: u32, ty: CGEventType, p: CGPoint, b: CGMouseButton, clicks: i64) -> Result<(), Failure> {
+fn mouse(pid: i32, win: u32, ty: CGEventType, p: CGPoint, b: CGMouseButton, clicks: i64, flags: CGEventFlags) -> Result<(), Failure> {
     let e = CGEvent::new_mouse_event(source()?, ty, p, b).map_err(|_| fail(ErrorCode::ActionFailed, "mouse event"))?;
+    e.set_flags(flags);
     e.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, clicks);
     e.set_integer_value_field(91, win as i64);
     e.set_integer_value_field(92, win as i64);
@@ -179,21 +196,25 @@ fn mouse(pid: i32, win: u32, ty: CGEventType, p: CGPoint, b: CGMouseButton, clic
     Ok(())
 }
 
-fn click_at(pid: i32, win: u32, p: CGPoint, button: Button, count: u8) -> Result<(), Failure> {
+fn click_at(pid: i32, win: u32, p: CGPoint, button: Button, count: u8, mods: &[Modifier], hold: u32) -> Result<(), Failure> {
     let (down, up, b) = match button {
         Button::Left => (CGEventType::LeftMouseDown, CGEventType::LeftMouseUp, CGMouseButton::Left),
         Button::Right => (CGEventType::RightMouseDown, CGEventType::RightMouseUp, CGMouseButton::Right),
         Button::Middle => (CGEventType::OtherMouseDown, CGEventType::OtherMouseUp, CGMouseButton::Center),
     };
     for n in 1..=count.max(1) as i64 {
-        mouse(pid, win, down, p, b, n)?;
-        mouse(pid, win, up, p, b, n)?;
+        mouse(pid, win, down, p, b, n, flags(mods))?;
+        std::thread::sleep(Duration::from_millis(hold.min(10_000) as u64));
+        mouse(pid, win, up, p, b, n, flags(mods))?;
     }
     Ok(())
 }
 
-fn key(pid: i32, code: u16, flags: CGEventFlags, text: Option<&str>) -> Result<(), Failure> {
+fn key(pid: i32, code: u16, flags: CGEventFlags, text: Option<&str>, hold: u32) -> Result<(), Failure> {
     for down in [true, false] {
+        if !down {
+            std::thread::sleep(Duration::from_millis(hold.min(10_000) as u64));
+        }
         let e = CGEvent::new_keyboard_event(source()?, code, down).map_err(|_| fail(ErrorCode::ActionFailed, "key event"))?;
         e.set_flags(flags);
         if let Some(t) = text {
@@ -287,6 +308,27 @@ fn keycode(k: &str) -> Option<u16> {
     KEYS.iter().find(|(n, _)| *n == k).map(|(_, c)| *c)
 }
 
+fn chord(k: &str) -> Result<(u16, Vec<Modifier>), Failure> {
+    let unknown = || fail(ErrorCode::UnknownKey, format!("unknown key {k}"));
+    let (mods, last) = match k.rsplit_once('+') {
+        Some((m, "")) if !m.is_empty() => (m.strip_suffix('+').unwrap_or(m), "+"),
+        Some((m, last)) => (m, last),
+        None => ("", k),
+    };
+    let mods = mods
+        .split('+')
+        .filter(|m| !m.is_empty())
+        .map(|m| match m.to_ascii_lowercase().as_str() {
+            "cmd" | "command" | "meta" | "super" => Ok(Modifier::Command),
+            "shift" => Ok(Modifier::Shift),
+            "opt" | "option" | "alt" => Ok(Modifier::Option),
+            "ctrl" | "control" => Ok(Modifier::Control),
+            _ => Err(unknown()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((keycode(last).ok_or_else(unknown)?, mods))
+}
+
 fn flags(mods: &[Modifier]) -> CGEventFlags {
     mods.iter().fold(CGEventFlags::empty(), |f, m| {
         f | match m {
@@ -356,12 +398,29 @@ fn line(e: &El, origin: (f64, f64)) -> (String, bool) {
 
 struct Walk {
     origin: (f64, f64),
-    elements: Vec<El>,
-    tree: String,
+    known: HashMap<usize, Vec<(u32, El)>>,
+    taken: HashSet<u32>,
+    next: u32,
+    elements: Vec<(u32, El)>,
+    lines: Vec<(u32, String)>,
     truncated: bool,
 }
 
 impl Walk {
+    fn id(&mut self, e: &El) -> u32 {
+        let found = self
+            .known
+            .get(&unsafe { CFHash(e.as_CFTypeRef()) })
+            .and_then(|c| c.iter().find(|(id, k)| !self.taken.contains(id) && k == e))
+            .map(|(id, _)| *id);
+        let id = found.unwrap_or_else(|| {
+            self.next += 1;
+            self.next - 1
+        });
+        self.taken.insert(id);
+        id
+    }
+
     fn visit(&mut self, e: &El, depth: usize, indent: usize) {
         if self.elements.len() >= MAX_NODES || depth > MAX_DEPTH {
             self.truncated = true;
@@ -369,8 +428,9 @@ impl Walk {
         }
         let (s, keep) = line(e, self.origin);
         let next = if keep {
-            self.tree += &format!("{}[{}] {}\n", "  ".repeat(indent), self.elements.len(), s);
-            self.elements.push(e.clone());
+            let id = self.id(e);
+            self.lines.push((id, format!("{}[{}] {}", "  ".repeat(indent), id, s)));
+            self.elements.push((id, e.clone()));
             indent + 1
         } else {
             indent
@@ -378,6 +438,70 @@ impl Walk {
         for c in attr(e, "AXChildren").map(list).unwrap_or_default() {
             self.visit(&c, depth + 1, next);
         }
+    }
+}
+
+fn busy(e: &El, depth: usize, seen: &mut usize) -> bool {
+    *seen += 1;
+    if *seen > MAX_NODES || depth > MAX_DEPTH {
+        return false;
+    }
+    if str_attr(e, "AXRole").is_some_and(|r| BUSY.contains(&r.as_str())) {
+        return true;
+    }
+    attr(e, "AXChildren").map(list).unwrap_or_default().iter().any(|c| busy(c, depth + 1, seen))
+}
+
+fn paste(pid: i32, text: &str, format: PasteFormat) -> Result<(), Failure> {
+    let pb = NSPasteboard::generalPasteboard();
+    let saved: Vec<Retained<ProtocolObject<dyn NSPasteboardWriting>>> = pb
+        .pasteboardItems()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| {
+                    let copy = NSPasteboardItem::new();
+                    for t in item.types().iter() {
+                        if let Some(d) = item.dataForType(&t) {
+                            copy.setData_forType(&d, &t);
+                        }
+                    }
+                    ProtocolObject::from_retained(copy)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    pb.clearContents();
+    let ty = if format == PasteFormat::Html { unsafe { NSPasteboardTypeHTML } } else { unsafe { NSPasteboardTypeString } };
+    pb.setString_forType(&NSString::from_str(text), ty);
+    let sent = key(pid, 9, CGEventFlags::CGEventFlagCommand, None, 0);
+    std::thread::sleep(Duration::from_millis(400));
+    pb.clearContents();
+    if !saved.is_empty() {
+        pb.writeObjects(&NSArray::from_retained_slice(&saved));
+    }
+    sent
+}
+
+fn select(e: &El, text: &str, prefix: &str, suffix: &str, selection: Selection) -> Result<(), Failure> {
+    let value = attr(e, "AXValue").and_then(|v| text_of(&v)).unwrap_or_default();
+    let at = value
+        .match_indices(text)
+        .map(|(i, _)| i)
+        .find(|&i| value[..i].ends_with(prefix) && value[i + text.len()..].starts_with(suffix))
+        .ok_or_else(|| fail(ErrorCode::ActionFailed, format!("text {text:?} not found in the element's value")))?;
+    let start = value[..at].encode_utf16().count() as isize;
+    let len = text.encode_utf16().count() as isize;
+    let range: [isize; 2] = match selection {
+        Selection::Text => [start, len],
+        Selection::CursorBefore => [start, 0],
+        Selection::CursorAfter => [start + len, 0],
+    };
+    set_attr(e, "AXFocused", &CFBoolean::true_value().as_CFType());
+    let v = unsafe { CFType::wrap_under_create_rule(AXValueCreate(4, range.as_ptr() as *const c_void)) };
+    match set_attr(e, "AXSelectedTextRange", &v) {
+        0 => Ok(()),
+        n => Err(fail(ErrorCode::ActionFailed, format!("setting the selection failed (AXError {n})"))),
     }
 }
 
@@ -432,23 +556,54 @@ impl Desk {
         let r = match cmd {
             Command::Permissions { prompt } => Ok(permissions(prompt)),
             Command::Apps => apps(),
-            Command::Observe { app, screenshot } => resolve(&app).and_then(|a| self.observe(&a, screenshot)).map(Reply::Observation),
-            Command::Act { app, actions, observe, screenshot, pace: paced } => {
-                self.act(&app, &actions, observe, screenshot, if paced { Some(pace) } else { None })
+            Command::Observe { app, screenshot, diff } => {
+                resolve(&app).and_then(|a| self.observe(&a, screenshot, diff)).map(Reply::Observation)
+            }
+            Command::Act { app, actions, observe, screenshot, pace: paced, diff } => {
+                let pace = if paced { Some(pace) } else { None };
+                self.act(&app, &actions, observe.then_some((screenshot, diff)), pace)
             }
             Command::Arrived => Err(fail(ErrorCode::BadRequest, "arrived outside a paced act")),
         };
         r.unwrap_or_else(Reply::Error)
     }
 
-    fn observe(&mut self, app: &App, shot: bool) -> Result<Observation, Failure> {
+    fn observe(&mut self, app: &App, shot: bool, diff: bool) -> Result<Observation, Failure> {
         let (_, w) = window(app)?;
+        let win = window_id(&w);
         let f = frame(&w).unwrap_or(Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 });
-        let mut walk = Walk { origin: (f.x, f.y), elements: vec![], tree: String::new(), truncated: false };
+        let prev = self.cache.remove(&app.pid).filter(|s| s.window == win);
+        let mut walk = Walk {
+            origin: (f.x, f.y),
+            known: HashMap::new(),
+            taken: HashSet::new(),
+            next: prev.as_ref().map_or(0, |p| p.next),
+            elements: vec![],
+            lines: vec![],
+            truncated: false,
+        };
+        for (id, e) in prev.iter().flat_map(|p| p.elements.iter()) {
+            walk.known.entry(unsafe { CFHash(e.as_CFTypeRef()) }).or_default().push((*id, e.clone()));
+        }
         for c in attr(&w, "AXChildren").map(list).unwrap_or_default() {
             walk.visit(&c, 0, 0);
         }
         let screenshot = if shot { Some(capture(&w, f)?) } else { None };
+        let base = prev.filter(|_| diff);
+        let tree: String = walk
+            .lines
+            .iter()
+            .filter(|(id, l)| base.as_ref().is_none_or(|b| b.lines.get(id) != Some(l)))
+            .map(|(_, l)| format!("{l}\n"))
+            .collect();
+        let removed = base
+            .as_ref()
+            .map(|b| {
+                let mut gone: Vec<u32> = b.lines.keys().filter(|id| !walk.taken.contains(id)).copied().collect();
+                gone.sort_unstable();
+                gone
+            })
+            .unwrap_or_default();
         let obs = Observation {
             app: app.name.clone(),
             bundle_id: app.bundle.clone(),
@@ -457,24 +612,44 @@ impl Desk {
             frame: f,
             elements: walk.elements.len() as u32,
             truncated: walk.truncated,
-            tree: walk.tree,
+            diffed: base.is_some(),
+            tree,
+            removed,
             screenshot,
         };
-        self.cache.insert(app.pid, Snapshot { elements: walk.elements, origin: walk.origin });
+        self.cache.insert(
+            app.pid,
+            Snapshot {
+                window: win,
+                origin: walk.origin,
+                elements: walk.elements,
+                lines: walk.lines.into_iter().collect(),
+                next: walk.next,
+            },
+        );
         Ok(obs)
+    }
+
+    fn settle(&self, w: &El) {
+        std::thread::sleep(Duration::from_millis(1000));
+        for _ in 0..16 {
+            if !busy(w, 0, &mut 0) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        }
     }
 
     fn act(
         &mut self,
         query: &str,
         actions: &[Action],
-        observe: bool,
-        shot: bool,
+        observe: Option<(bool, bool)>,
         mut pace: Option<&mut dyn FnMut(u32, Point) -> Result<(), Failure>>,
     ) -> Result<Reply, Failure> {
         let app = resolve(query)?;
         if !self.cache.contains_key(&app.pid) {
-            self.observe(&app, false)?;
+            self.observe(&app, false, false)?;
         }
         let (ax, w) = window(&app)?;
         let win = window_id(&w);
@@ -493,14 +668,21 @@ impl Desk {
             }
             completed += 1;
         }
-        std::thread::sleep(Duration::from_millis(250));
-        let observation = if observe { Some(self.observe(&app, shot)?) } else { None };
+        self.settle(&w);
+        let observation = match observe {
+            Some((shot, diff)) => Some(self.observe(&app, shot, diff)?),
+            None => None,
+        };
         Ok(Reply::Acted { completed, failure, observation })
     }
 
     fn element(&self, pid: i32, index: u32) -> Result<El, Failure> {
         let s = self.cache.get(&pid).ok_or_else(|| fail(ErrorCode::BadIndex, "observe first"))?;
-        s.elements.get(index as usize).cloned().ok_or_else(|| fail(ErrorCode::BadIndex, format!("no element {index}; observe again")))
+        s.elements
+            .iter()
+            .find(|(id, _)| *id == index)
+            .map(|(_, e)| e.clone())
+            .ok_or_else(|| fail(ErrorCode::BadIndex, format!("no element {index}; observe again")))
     }
 
     fn point(&self, pid: i32, t: Target) -> Result<CGPoint, Failure> {
@@ -528,47 +710,67 @@ impl Desk {
     fn step(&self, app: &App, ax: &El, w: &El, win: u32, a: &Action) -> Result<(), Failure> {
         let pid = app.pid;
         match a {
-            Action::Click { target: Target::Index(i), button: Button::Left, count: 1 } => {
+            Action::Click { target: Target::Index(i), button: Button::Left, count: 1, modifiers, hold_ms: 0 } if modifiers.is_empty() => {
                 let e = self.element(pid, *i)?;
                 if actions(&e).iter().any(|a| a == "AXPress") {
                     perform(&e, "AXPress")
                 } else {
-                    click_at(pid, win, self.point(pid, Target::Index(*i))?, Button::Left, 1)
+                    click_at(pid, win, self.point(pid, Target::Index(*i))?, Button::Left, 1, &[], 0)
                 }
             }
-            Action::Click { target, button, count } => click_at(pid, win, self.point(pid, *target)?, *button, *count),
+            Action::Click { target, button, count, modifiers, hold_ms } => {
+                click_at(pid, win, self.point(pid, *target)?, *button, *count, modifiers, *hold_ms)
+            }
             Action::TypeText { text } => {
                 let chars: Vec<char> = text.chars().collect();
                 for chunk in chars.chunks(16) {
-                    key(pid, 0, CGEventFlags::empty(), Some(&chunk.iter().collect::<String>()))?;
+                    key(pid, 0, CGEventFlags::empty(), Some(&chunk.iter().collect::<String>()), 0)?;
                 }
                 Ok(())
             }
-            Action::PressKey { key: k, modifiers } => {
-                let code = keycode(k).ok_or_else(|| fail(ErrorCode::UnknownKey, format!("unknown key {k}")))?;
-                key(pid, code, flags(modifiers), None)
+            Action::Paste { text, format } => paste(pid, text, *format),
+            Action::SelectText { index, text, prefix, suffix, selection } => {
+                select(&self.element(pid, *index)?, text, prefix, suffix, *selection)
             }
-            Action::Scroll { target, direction, lines } => {
+            Action::PressKey { key: k, hold_ms } => {
+                let (code, mods) = chord(k)?;
+                key(pid, code, flags(&mods), None, *hold_ms)
+            }
+            Action::Scroll { target, direction, amount } => {
                 let p = match target {
                     Some(t) => self.point(pid, *t)?,
                     None => center(w),
                 };
-                let n = *lines as i32;
-                let (dy, dx) = match direction {
-                    Direction::Up => (n, 0),
-                    Direction::Down => (-n, 0),
-                    Direction::Left => (0, n),
-                    Direction::Right => (0, -n),
+                let view = match target {
+                    Some(Target::Index(i)) => frame(&self.element(pid, *i)?),
+                    _ => frame(w),
+                }
+                .unwrap_or(Rect { x: 0.0, y: 0.0, w: 600.0, h: 600.0 });
+                let vertical = matches!(direction, Direction::Up | Direction::Down);
+                let mut left = match amount {
+                    Amount::Pixels(n) => *n as i32,
+                    Amount::Pages(n) => (n.clamp(0.0, 20.0) * 0.85 * if vertical { view.h } else { view.w }) as i32,
                 };
-                let e = CGEvent::new_scroll_event(source()?, ScrollEventUnit::LINE, 2, dy, dx, 0)
-                    .map_err(|_| fail(ErrorCode::ActionFailed, "scroll event"))?;
-                unsafe { CGEventSetLocation(e.as_ptr() as *mut c_void, p) };
-                post(e, pid);
+                while left > 0 {
+                    let n = left.min(120);
+                    left -= n;
+                    let (dy, dx) = match direction {
+                        Direction::Up => (n, 0),
+                        Direction::Down => (-n, 0),
+                        Direction::Left => (0, n),
+                        Direction::Right => (0, -n),
+                    };
+                    let e = CGEvent::new_scroll_event(source()?, ScrollEventUnit::PIXEL, 2, dy, dx, 0)
+                        .map_err(|_| fail(ErrorCode::ActionFailed, "scroll event"))?;
+                    unsafe { CGEventSetLocation(e.as_ptr() as *mut c_void, p) };
+                    post(e, pid);
+                }
                 Ok(())
             }
             Action::Drag { from, to } => {
                 let (a, b) = (self.point(pid, Target::Point(*from))?, self.point(pid, Target::Point(*to))?);
-                mouse(pid, win, CGEventType::LeftMouseDown, a, CGMouseButton::Left, 1)?;
+                let none = CGEventFlags::empty();
+                mouse(pid, win, CGEventType::LeftMouseDown, a, CGMouseButton::Left, 1, none)?;
                 for s in 1..=12 {
                     let t = s as f64 / 12.0;
                     mouse(
@@ -578,10 +780,11 @@ impl Desk {
                         pt(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t),
                         CGMouseButton::Left,
                         1,
+                        none,
                     )?;
                     std::thread::sleep(Duration::from_millis(12));
                 }
-                mouse(pid, win, CGEventType::LeftMouseUp, b, CGMouseButton::Left, 1)
+                mouse(pid, win, CGEventType::LeftMouseUp, b, CGMouseButton::Left, 1, none)
             }
             Action::SetValue { index, value } => match set_attr(&self.element(pid, *index)?, "AXValue", &cfs(value).as_CFType()) {
                 0 => Ok(()),
@@ -623,10 +826,26 @@ fn resolve(query: &str) -> Result<App, Failure> {
         return Err(fail(ErrorCode::PermissionMissing, "Accessibility not granted; run `desk permissions --prompt`"));
     }
     let cfg = policy::load().map_err(|e| fail(ErrorCode::BadRequest, e))?;
-    let app = running()
-        .into_iter()
-        .find(|a| a.name.eq_ignore_ascii_case(query) || a.bundle.as_deref().is_some_and(|b| b.eq_ignore_ascii_case(query)))
-        .ok_or_else(|| fail(ErrorCode::AppNotFound, format!("no running app named {query}; open it first")))?;
+    let find = || {
+        running()
+            .into_iter()
+            .find(|a| a.name.eq_ignore_ascii_case(query) || a.bundle.as_deref().is_some_and(|b| b.eq_ignore_ascii_case(query)))
+    };
+    let app = match find() {
+        Some(app) => app,
+        None if policy::access(&cfg, query, Some(query)) == Access::Allowed => {
+            let flag = if query.contains('.') && !query.contains(' ') { "-b" } else { "-a" };
+            let opened = std::process::Command::new("/usr/bin/open").args(["-g", flag, query]).status().is_ok_and(|s| s.success());
+            (0..25)
+                .take_while(|_| opened)
+                .find_map(|_| {
+                    std::thread::sleep(Duration::from_millis(200));
+                    find()
+                })
+                .ok_or_else(|| fail(ErrorCode::AppNotFound, format!("could not open {query}")))?
+        }
+        None => return Err(fail(ErrorCode::AppNotFound, format!("no running app named {query}, and it is not allowlisted to open"))),
+    };
     match policy::access(&cfg, &app.name, app.bundle.as_deref()) {
         Access::Allowed => Ok(app),
         Access::Blocked => Err(fail(ErrorCode::AppBlocked, format!("{} is on the built-in blocklist", app.name))),

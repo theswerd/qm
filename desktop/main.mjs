@@ -2,8 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell, session as electronSe
 import { readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { desk } from "./desk.mjs";
 import { createLogin, loginCallback } from "./login.mjs";
+import { call, tools } from "./runtime.mjs";
 import { startUpdates } from "./updates.mjs";
 import { tabStep } from "./shortcuts.mjs";
 import { instanceUrl, externalUrl, browserLoginUrl, loginDestination, internalUrl } from "./url.mjs";
@@ -315,21 +315,21 @@ async function start() {
       throw new Error("Untrusted browser destination");
     await shell.openExternal(destination.href);
   });
-  ipcMain.handle("qm:desk-apps", (event) => {
+  const calls = new Map();
+  ipcMain.handle("qm:computer-tools", (event) => {
     assertWorkspace(event);
-    return desk.apps();
+    return process.platform === "darwin" ? tools : [];
   });
-  ipcMain.handle("qm:desk-observe", (event, app, screenshot) => {
+  ipcMain.handle("qm:computer-call", (event, callId, name, args) => {
     assertWorkspace(event);
-    if (typeof app !== "string" || typeof screenshot !== "boolean") throw new Error("Invalid desk request");
-    return desk.observe(app, screenshot);
-  });
-  ipcMain.handle("qm:desk-act", (event, app, actions, screenshot) => {
-    assertWorkspace(event);
-    if (typeof app !== "string" || !Array.isArray(actions) || typeof screenshot !== "boolean") {
-      throw new Error("Invalid desk request");
+    if (process.platform !== "darwin" || typeof callId !== "string" || typeof name !== "string") {
+      throw new Error("Invalid computer call");
     }
-    return desk.act(app, actions, screenshot);
+    if (!calls.has(callId)) {
+      calls.set(callId, call(name, args));
+      setTimeout(() => calls.delete(callId), 15 * 60_000);
+    }
+    return calls.get(callId);
   });
   ipcMain.handle("qm:current-instance", (event) => {
     assertSetup(event);

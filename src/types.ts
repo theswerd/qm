@@ -655,6 +655,7 @@ export interface ClientToolDeclaration {
 export interface ClientToolResult {
   content: string;
   structured?: unknown;
+  images?: Array<{ mimeType: "image/png" | "image/jpeg"; data: string }>;
   isError?: boolean;
 }
 

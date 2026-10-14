@@ -15,6 +15,7 @@ import { base64ToBytes } from "./paste-text.ts";
 import { defaultEffortForModel, harnessSupportsEffort } from "./runtime-capabilities.ts";
 import { SIGNIN_REQUIRED_EVENT, signinRedirect } from "./signin-return.ts";
 import { messageEntrySeqs } from "./message-link.ts";
+import { desktopTools, runDesktopCalls } from "./desktop-tools.ts";
 
 const BASE_URL = ((import.meta as unknown as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? "/").replace(/\/$/, "");
 
@@ -1107,6 +1108,7 @@ function turnRequestBody(
     ...(turnOptions.channelName ? { channelName: turnOptions.channelName } : {}),
     ...(attachments.length ? { attachments } : {}),
     ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...desktopTools(),
   };
 }
 
@@ -1256,7 +1258,7 @@ async function resumeDrive(
     // never blanks text the person has already read. The server's own partial
     // (when longer) simply replaces it via the normal delta path.
     if (seedText?.trim()) pushDelta(stream, partial, st, seedText);
-    if (initialRun && applyRun(stream, partial, st, initialRun, notify) === "terminal") return;
+    if (initialRun && applyRun(stream, partial, st, initialRun, runId, notify) === "terminal") return;
     await followRun(stream, partial, runId, signal, notify, st, slot, gen);
   } catch (e) {
     work.status = "failed";
@@ -1365,9 +1367,17 @@ function applyRun(
   partial: AssistantMessage,
   st: Acc,
   run: RunPoll,
+  runId: string,
   notify?: () => void,
 ): "open" | "terminal" {
   const work = (partial as AssistantWork).work;
+  if (!runIsTerminal(run))
+    runDesktopCalls(parseActivity(run.activity), (callId, result) =>
+      api(runPath(runId, "/signal"), {
+        method: "POST",
+        body: JSON.stringify({ kind: "client_result", callId, result }),
+      }),
+    );
   const beforeActivity = work?.activity.length ?? 0;
   if (mergeWork(work, run)) {
     if ((work?.activity.length ?? 0) > beforeActivity) st.lastProgressAt = now();
@@ -1454,7 +1464,7 @@ export async function pollRun(
       await sleep(Math.min(POLL_MS * 2 ** Math.min(consecutiveFailures, 4), POLL_RETRY_MAX_MS));
       continue;
     }
-    if (applyRun(stream, partial, st, run, notify) === "terminal") return;
+    if (applyRun(stream, partial, st, run, runId, notify) === "terminal") return;
     if (run.stale === true) st.staleSince ??= now();
     else st.staleSince = undefined;
     if (run.alive === true || (st.staleSince !== undefined && now() - st.staleSince < STALE_GRACE_MS))
@@ -1563,7 +1573,8 @@ async function streamRunViaSse(
         const run = event.value as RunPoll;
         // Completion must carry the final result, including files and approvals.
         const terminal = run.status === "done" || run.status === "failed" || run.result != null;
-        if (applyRun(stream, partial, st, { ...run, replyComplete: terminal }, notify) === "terminal") return "done";
+        if (applyRun(stream, partial, st, { ...run, replyComplete: terminal }, runId, notify) === "terminal")
+          return "done";
         if (run.alive) st.lastProgressAt = now();
       }
     }

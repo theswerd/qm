@@ -31,7 +31,7 @@ function start() {
   return proc;
 }
 
-function request(cmd) {
+function enqueue(cmd) {
   const run = () =>
     new Promise((resolve) => {
       const proc = start();
@@ -53,8 +53,6 @@ function request(cmd) {
   return result;
 }
 
-export const desk = {
-  apps: () => request({ type: "apps" }),
-  observe: (app, screenshot) => request({ type: "observe", app, screenshot }),
-  act: (app, actions, screenshot) => request({ type: "act", app, actions, screenshot, pace: paced }),
-};
+export function request(cmd) {
+  return enqueue(cmd.type === "act" ? { ...cmd, pace: paced } : cmd);
+}

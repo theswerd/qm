@@ -19,6 +19,8 @@ pub enum Command {
         app: String,
         #[serde(default)]
         screenshot: bool,
+        #[serde(default = "yes")]
+        diff: bool,
     },
     Act {
         app: String,
@@ -29,6 +31,8 @@ pub enum Command {
         screenshot: bool,
         #[serde(default)]
         pace: bool,
+        #[serde(default = "yes")]
+        diff: bool,
     },
     Arrived,
 }
@@ -41,10 +45,6 @@ fn one() -> u8 {
     1
 }
 
-fn three() -> u32 {
-    3
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
@@ -54,21 +54,40 @@ pub enum Action {
         button: Button,
         #[serde(default = "one")]
         count: u8,
+        #[serde(default)]
+        modifiers: Vec<Modifier>,
+        #[serde(default)]
+        hold_ms: u32,
     },
     TypeText {
         text: String,
     },
+    Paste {
+        text: String,
+        #[serde(default)]
+        format: PasteFormat,
+    },
     PressKey {
         key: String,
         #[serde(default)]
-        modifiers: Vec<Modifier>,
+        hold_ms: u32,
     },
     Scroll {
         #[serde(default)]
         target: Option<Target>,
         direction: Direction,
-        #[serde(default = "three")]
-        lines: u32,
+        #[serde(default)]
+        amount: Amount,
+    },
+    SelectText {
+        index: u32,
+        text: String,
+        #[serde(default)]
+        prefix: String,
+        #[serde(default)]
+        suffix: String,
+        #[serde(default)]
+        selection: Selection,
     },
     Drag {
         from: Point,
@@ -118,6 +137,37 @@ pub enum Modifier {
     Shift,
     Option,
     Control,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum Amount {
+    Pages(f64),
+    Pixels(u32),
+}
+
+impl Default for Amount {
+    fn default() -> Self {
+        Amount::Pages(1.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PasteFormat {
+    #[default]
+    Text,
+    Markdown,
+    Html,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Selection {
+    #[default]
+    Text,
+    CursorBefore,
+    CursorAfter,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -175,7 +225,9 @@ pub struct Observation {
     pub frame: Rect,
     pub elements: u32,
     pub truncated: bool,
+    pub diffed: bool,
     pub tree: String,
+    pub removed: Vec<u32>,
     pub screenshot: Option<Screenshot>,
 }
 

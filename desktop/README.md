@@ -39,7 +39,9 @@ Same-instance links opened in a new tab use a separate sandboxed window sharing 
 
 On macOS the app can see and drive allowlisted Mac apps through [`desk`](desk/README.md), a Rust helper bundled at `QM.app/Contents/Resources/desk`. `npm run package` builds it with Cargo first, so install Rust (`rustup`) on the packaging Mac. Because QM launches it, grant **QM** Accessibility (and Screen Recording for screenshots) in System Settings > Privacy & Security, then relaunch QM. In development, `npm start` uses `desk/target/release/desk`; override with `QM_DESK_BIN`.
 
-The workspace preload exposes `window.qmDesktop.desk.apps()`, `observe(app, screenshot)` and `act(app, actions, screenshot)`, which pass through to `desk serve` one request at a time and return its replies (see `desk/PROTOCOL.md`). The same sender check as browser handoff applies. desk's own allowlist (`desk allow <app>`) and built-in blocklist decide which apps may be driven.
+When the web UI runs inside the Mac app, each turn it sends declares two client tools, `ui__js` and `ui__js_reset`. The agent writes JavaScript against a `computer` object (`getApp`, then `getAXState`, `click`, `typeText`, `paste`, `selectText`, …; the first call returns the full reference). The page sees the call in the run's activity, hands it to the app over IPC (`window.qmDesktop.computer.call`) and posts the result, with any screenshots, back as the tool result.
+
+The code runs in a hidden, sandboxed window with no Node.js, no network and no other pages, evaluated over the DevTools protocol so top-level `await` works and bindings persist until `ui__js_reset`. Its only way out is `deskHost.request`, which main forwards to `desk serve` as `apps`, `observe` or `act`. Calls time out at 30 s by default (55 s at most), resetting the session. desk's own allowlist (`desk allow <app>`) and built-in blocklist decide which apps may be driven.
 
 Before each click, scroll or drag, a transparent click-through overlay flies an agent cursor to the target point and desk waits for it to land. Set `QM_DESK_CURSOR=0` to skip the overlay.
 
