@@ -26,7 +26,7 @@ function overlay(bounds) {
     skipTaskbar: true,
     show: false,
     enableLargerThanScreen: true,
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false },
   });
   window.setIgnoreMouseEvents(true);
   window.setAlwaysOnTop(true, "screen-saver");
