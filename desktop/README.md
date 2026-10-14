@@ -35,6 +35,14 @@ Slack installation and personal app authorization start in your browser before Q
 
 Same-instance links opened in a new tab use a separate sandboxed window sharing the instance session. External links open in the browser. View → Back and Forward navigate the focused window. Closing the main window closes its previews.
 
+## Computer use
+
+On macOS the app can see and drive allowlisted Mac apps through [`desk`](desk/README.md), a Rust helper bundled at `QM.app/Contents/Resources/desk`. `npm run package` builds it with Cargo first, so install Rust (`rustup`) on the packaging Mac. Because QM launches it, grant **QM** Accessibility (and Screen Recording for screenshots) in System Settings > Privacy & Security, then relaunch QM. In development, `npm start` uses `desk/target/release/desk`; override with `QM_DESK_BIN`.
+
+The workspace preload exposes `window.qmDesktop.desk.apps()`, `observe(app, screenshot)` and `act(app, actions, screenshot)`, which pass through to `desk serve` one request at a time and return its replies (see `desk/PROTOCOL.md`). The same sender check as browser handoff applies. desk's own allowlist (`desk allow <app>`) and built-in blocklist decide which apps may be driven.
+
+Before each click, scroll or drag, a transparent click-through overlay flies an agent cursor to the target point and desk waits for it to land. Set `QM_DESK_CURSOR=0` to skip the overlay.
+
 ## Mac release
 
 `npm run package` builds the unsigned local app. For a signed and notarized build, install a Developer ID Application certificate in the Mac keychain and sign in to that team in Xcode Settings → Accounts. Then run:

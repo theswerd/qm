@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell, session as electronSe
 import { readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { desk } from "./desk.mjs";
 import { createLogin, loginCallback } from "./login.mjs";
 import { startUpdates } from "./updates.mjs";
 import { tabStep } from "./shortcuts.mjs";
@@ -290,18 +291,21 @@ async function start() {
       throw new Error("Untrusted settings request");
     }
   };
-  ipcMain.handle("qm:open-browser", async (event, value) => {
+  const assertWorkspace = (event) => {
     if (
       !mainWindow ||
       mainWindow.isDestroyed() ||
       ![...workspaceWindows].some((page) => !page.isDestroyed() && page.webContents === event.sender) ||
       event.senderFrame !== event.sender.mainFrame ||
       !target ||
-      new URL(event.senderFrame.url).origin !== new URL(target).origin ||
-      typeof value !== "string"
+      new URL(event.senderFrame.url).origin !== new URL(target).origin
     ) {
-      throw new Error("Untrusted browser request");
+      throw new Error("Untrusted workspace request");
     }
+  };
+  ipcMain.handle("qm:open-browser", async (event, value) => {
+    assertWorkspace(event);
+    if (typeof value !== "string") throw new Error("Untrusted browser request");
     const destination = new URL(value, target);
     if (
       destination.origin !== new URL(target).origin ||
@@ -310,6 +314,22 @@ async function start() {
     )
       throw new Error("Untrusted browser destination");
     await shell.openExternal(destination.href);
+  });
+  ipcMain.handle("qm:desk-apps", (event) => {
+    assertWorkspace(event);
+    return desk.apps();
+  });
+  ipcMain.handle("qm:desk-observe", (event, app, screenshot) => {
+    assertWorkspace(event);
+    if (typeof app !== "string" || typeof screenshot !== "boolean") throw new Error("Invalid desk request");
+    return desk.observe(app, screenshot);
+  });
+  ipcMain.handle("qm:desk-act", (event, app, actions, screenshot) => {
+    assertWorkspace(event);
+    if (typeof app !== "string" || !Array.isArray(actions) || typeof screenshot !== "boolean") {
+      throw new Error("Invalid desk request");
+    }
+    return desk.act(app, actions, screenshot);
   });
   ipcMain.handle("qm:current-instance", (event) => {
     assertSetup(event);

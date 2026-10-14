@@ -104,6 +104,7 @@ test(
           },
         },
         session: { fromPartition: () => session },
+        screen: {},
         dialog: { showErrorBox: (...args) => errors.push(args), showMessageBox: async (...args) => errors.push(args) },
       },
     });

@@ -38,7 +38,7 @@
       ]
     },
     "desktop": {
-      "entry": ["preload.cjs", "setup.js", "test/**/*.test.mjs"]
+      "entry": ["preload.cjs", "setup.js", "cursor.js", "test/**/*.test.mjs"]
     },
     "cli": {
       "entry": ["bin/qm.ts"]

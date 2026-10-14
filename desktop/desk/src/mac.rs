@@ -298,6 +298,10 @@ fn flags(mods: &[Modifier]) -> CGEventFlags {
     })
 }
 
+fn center(w: &El) -> CGPoint {
+    frame(w).map(|f| pt(f.x + f.w / 2.0, f.y + f.h / 2.0)).unwrap_or(pt(0.0, 0.0))
+}
+
 fn window_of(app: &El) -> Option<El> {
     attr(app, "AXFocusedWindow")
         .or_else(|| attr(app, "AXMainWindow"))
@@ -417,19 +421,22 @@ fn permissions(prompt: bool) -> Reply {
     };
     let binary = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
     let help = "System Settings > Privacy & Security > Accessibility and > Screen Recording: add the app that launches desk \
-(Terminal, iTerm, Ghostty, or your harness) with +, switch it on, then quit and reopen that app. \
+(QM, or your terminal when run alone) with +, switch it on, then quit and reopen that app. \
 `desk permissions --prompt` raises the system prompts."
         .to_string();
     Reply::Permissions { accessibility, screen_recording, binary, help }
 }
 
 impl Desk {
-    pub fn handle(&mut self, cmd: Command) -> Reply {
+    pub fn handle(&mut self, cmd: Command, pace: &mut dyn FnMut(u32, Point) -> Result<(), Failure>) -> Reply {
         let r = match cmd {
             Command::Permissions { prompt } => Ok(permissions(prompt)),
             Command::Apps => apps(),
             Command::Observe { app, screenshot } => resolve(&app).and_then(|a| self.observe(&a, screenshot)).map(Reply::Observation),
-            Command::Act { app, actions, observe, screenshot } => self.act(&app, &actions, observe, screenshot),
+            Command::Act { app, actions, observe, screenshot, pace: paced } => {
+                self.act(&app, &actions, observe, screenshot, if paced { Some(pace) } else { None })
+            }
+            Command::Arrived => Err(fail(ErrorCode::BadRequest, "arrived outside a paced act")),
         };
         r.unwrap_or_else(Reply::Error)
     }
@@ -457,7 +464,14 @@ impl Desk {
         Ok(obs)
     }
 
-    fn act(&mut self, query: &str, actions: &[Action], observe: bool, shot: bool) -> Result<Reply, Failure> {
+    fn act(
+        &mut self,
+        query: &str,
+        actions: &[Action],
+        observe: bool,
+        shot: bool,
+        mut pace: Option<&mut dyn FnMut(u32, Point) -> Result<(), Failure>>,
+    ) -> Result<Reply, Failure> {
         let app = resolve(query)?;
         if !self.cache.contains_key(&app.pid) {
             self.observe(&app, false)?;
@@ -467,7 +481,12 @@ impl Desk {
         let mut completed = 0;
         let mut failure = None;
         for (i, a) in actions.iter().enumerate() {
-            if let Err(mut e) = self.step(&app, &ax, &w, win, a) {
+            let paced = match (pace.as_mut(), self.aim(app.pid, &w, a)) {
+                (Some(p), Ok(Some(at))) => p(i as u32, Point { x: at.x, y: at.y }),
+                (Some(_), Err(e)) => Err(e),
+                _ => Ok(()),
+            };
+            if let Err(mut e) = paced.and_then(|_| self.step(&app, &ax, &w, win, a)) {
                 e.action = Some(i as u32);
                 failure = Some(e);
                 break;
@@ -497,6 +516,15 @@ impl Desk {
         }
     }
 
+    fn aim(&self, pid: i32, w: &El, a: &Action) -> Result<Option<CGPoint>, Failure> {
+        match a {
+            Action::Click { target, .. } | Action::Scroll { target: Some(target), .. } => self.point(pid, *target).map(Some),
+            Action::Scroll { target: None, .. } => Ok(Some(center(w))),
+            Action::Drag { from, .. } => self.point(pid, Target::Point(*from)).map(Some),
+            _ => Ok(None),
+        }
+    }
+
     fn step(&self, app: &App, ax: &El, w: &El, win: u32, a: &Action) -> Result<(), Failure> {
         let pid = app.pid;
         match a {
@@ -523,7 +551,7 @@ impl Desk {
             Action::Scroll { target, direction, lines } => {
                 let p = match target {
                     Some(t) => self.point(pid, *t)?,
-                    None => frame(w).map(|f| pt(f.x + f.w / 2.0, f.y + f.h / 2.0)).unwrap_or(pt(0.0, 0.0)),
+                    None => center(w),
                 };
                 let n = *lines as i32;
                 let (dy, dx) = match direction {

@@ -27,7 +27,10 @@ pub enum Command {
         observe: bool,
         #[serde(default)]
         screenshot: bool,
+        #[serde(default)]
+        pace: bool,
     },
+    Arrived,
 }
 
 fn yes() -> bool {
@@ -140,6 +143,7 @@ pub enum Reply {
     Apps { apps: Vec<AppInfo> },
     Observation(Observation),
     Acted { completed: u32, failure: Option<Failure>, observation: Option<Observation> },
+    Pointer { action: u32, point: Point },
     Error(Failure),
 }
 
