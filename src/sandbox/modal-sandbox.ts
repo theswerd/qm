@@ -266,7 +266,7 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
       sessionByName.delete(name);
       await session.terminate().then(
         () => store.merge(scope, { hydrationPending: false }),
-        () => undefined,
+        (err: unknown) => reportError("sandbox_hydrate", "orphan_terminate_failed", errMessage(err), scope),
       );
       throw new Error(`modal provision: home hydration failed (${errMessage(e)}); not risking the stored snapshot`, {
         cause: e,
@@ -277,7 +277,7 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
       sessionByName.delete(name);
       await session.terminate().then(
         () => store.merge(scope, { hydrationPending: false }),
-        () => undefined,
+        (err: unknown) => reportError("sandbox_hydrate", "orphan_terminate_failed", errMessage(err), scope),
       );
       throw new Error(`modal provision: could not mark the sandbox hydrated: ${marked.stderr.slice(0, 200)}`);
     }
@@ -361,7 +361,8 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
           }
         }
         sessionByName.delete(name);
-        if (!(await store.get(scope))?.nativeSnapshotId) await store.delete(scope).catch(() => undefined);
+        if (!(await store.get(scope))?.nativeSnapshotId)
+          await store.delete(scope).catch(swallowAs("modal-sandbox: forget retired sandbox", undefined));
       }
 
       if (!stored) {
@@ -444,7 +445,7 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
     const now = Date.now();
     if (now - (lastTouchMs.get(scope) ?? 0) < ACTIVITY_TOUCH_INTERVAL_MS) return;
     lastTouchMs.set(scope, now);
-    await store.merge(scope, { lastActivityMs: now }).catch(() => undefined);
+    await store.merge(scope, { lastActivityMs: now }).catch(swallowAs("modal-sandbox: record activity", undefined));
   }
 
   async function runTimed(
@@ -624,7 +625,8 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
         } catch (e) {
           if (e instanceof ModalSandboxGoneError) {
             sessionByName.delete(name);
-            if (!(await store.get(scope))?.nativeSnapshotId) await store.delete(scope).catch(() => undefined);
+            if (!(await store.get(scope))?.nativeSnapshotId)
+              await store.delete(scope).catch(swallowAs("modal-sandbox: forget retired sandbox", undefined));
           } else {
             reportError("sandbox_reap", "deep_idle_reap_failed", errMessage(e), scope);
           }
@@ -899,10 +901,14 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
             await store.merge(scope, { lastActivityMs: Date.now() });
           } catch (e) {
             reportError("sandbox_snapshot", "teardown_snapshot_failed", errMessage(e), scope);
-            await store.merge(scope, { lastActivityMs: Date.now() }).catch(() => undefined);
+            await store
+              .merge(scope, { lastActivityMs: Date.now() })
+              .catch(swallowAs("modal-sandbox: record activity", undefined));
           }
         } else {
-          await store.merge(scope, { lastActivityMs: Date.now() }).catch(() => undefined);
+          await store
+            .merge(scope, { lastActivityMs: Date.now() })
+            .catch(swallowAs("modal-sandbox: record activity", undefined));
         }
       });
     },
@@ -928,7 +934,8 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
         }
         if (!session) {
           sessionByName.delete(name);
-          if (!rec.nativeSnapshotId) await store.delete(scope).catch(() => undefined);
+          if (!rec.nativeSnapshotId)
+            await store.delete(scope).catch(swallowAs("modal-sandbox: forget retired sandbox", undefined));
           else if (checkpointRenewalDue(rec, now)) await renewCheckpoint(scope, name, rec);
           continue;
         }
@@ -945,7 +952,8 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
           } catch (e) {
             if (e instanceof ModalSandboxGoneError) {
               sessionByName.delete(name);
-              if (!rec.nativeSnapshotId) await store.delete(scope).catch(() => undefined);
+              if (!rec.nativeSnapshotId)
+                await store.delete(scope).catch(swallowAs("modal-sandbox: forget retired sandbox", undefined));
             } else {
               reportError("sandbox_reap", "deep_idle_probe_failed", errMessage(e), scope);
             }

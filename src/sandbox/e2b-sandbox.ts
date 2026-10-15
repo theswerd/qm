@@ -6,7 +6,7 @@ import type { DurableMap } from "../persistence/durable-map.ts";
 import { createMemoryMap } from "../persistence/durable-map.ts";
 import { createNoopAdvisoryLock, type AdvisoryLock } from "../persistence/advisory-lock.ts";
 import { createKeyedQueue } from "../util/async.ts";
-import { swallowAs, errMessage } from "../util/errors.ts";
+import { swallow, swallowAs, errMessage } from "../util/errors.ts";
 import { shq } from "../util/shell.ts";
 import { nonInteractiveShellPrefix, DROPPED_PROXY_ENV, forceThroughProxyEnv } from "./sandbox-env.ts";
 import { createExecProcessSessions, type ExecProcessIo } from "./exec-process-session.ts";
@@ -197,7 +197,7 @@ export function createE2bSandbox(workspace: WorkspaceStore, opts: E2bSandboxOpti
         try {
           onStatus?.("Restoring the sandbox from its recovery snapshot…");
         } catch (error) {
-          void error;
+          swallow("e2b-sandbox: status callback", error);
         }
         let session: E2bSession;
         try {
@@ -225,7 +225,7 @@ export function createE2bSandbox(workspace: WorkspaceStore, opts: E2bSandboxOpti
       try {
         onStatus?.("Creating the sandbox…");
       } catch (error) {
-        void error;
+        swallow("e2b-sandbox: status callback", error);
       }
       const session = await client.create({ metadata: { name }, autoPause: true });
       sessionByName.set(name, session);
@@ -241,7 +241,9 @@ export function createE2bSandbox(workspace: WorkspaceStore, opts: E2bSandboxOpti
       } catch (e) {
         reportError("sandbox_hydrate", "hydrate_failed", errMessage(e), scope);
         sessionByName.delete(name);
-        await client.kill(session.sandboxId).catch(() => undefined);
+        await client.kill(session.sandboxId).catch((err: unknown) => {
+          reportError("sandbox_hydrate", "orphan_kill_failed", errMessage(err), scope);
+        });
         throw new Error(`e2b provision: home hydration failed (${errMessage(e)}); not risking the stored snapshot`, {
           cause: e,
         });

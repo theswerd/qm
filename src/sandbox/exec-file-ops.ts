@@ -71,10 +71,10 @@ export function createExecFileOps({ label, exec, writeInline, combineRemoveAndLi
       const rel = workspaceRel(relDir) || ".";
       const r = await exec(
         handle.id,
-        `cd ${shq(handle.rootDir)} 2>/dev/null && find ${shq(rel)} -type f 2>/dev/null`,
+        `cd ${shq(handle.rootDir)} 2>/dev/null && [ -e ${shq(rel)} ] || exit 0; find ${shq(rel)} -type f`,
         60,
       );
-      if (r.code !== 0) return [];
+      if (r.code !== 0) throw new Error(`${label} listDir failed (exit ${r.code}): ${r.stderr.trim()}`);
       return r.stdout
         .split("\n")
         .map((s) => s.trim().replace(/^\.\//, ""))
