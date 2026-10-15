@@ -93,7 +93,6 @@ export function upsertSeedSkill(
     createdBy: string;
     reviewer: string;
     pack?: Skill["pack"];
-    /** Leave a record an admin archived alone instead of republishing it. */
     respectArchived?: boolean;
   },
 ): Promise<UpsertOutcome> {
@@ -111,7 +110,6 @@ async function upsertSeedSkillUnsafe(
     createdBy: string;
     reviewer: string;
     pack?: Skill["pack"];
-    /** Leave a record an admin archived alone instead of republishing it. */
     respectArchived?: boolean;
   },
 ): Promise<UpsertOutcome> {
