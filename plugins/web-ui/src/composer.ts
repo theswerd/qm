@@ -1408,8 +1408,6 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
       const queued = await queueTurn(threadRef, text, agent, ctx.chat.currentTurnOptions, idempotencyKey, attachments);
       failedQueueSend = null;
       bumpSessionActivity(threadRef);
-      // With the steer preference on, the message goes straight to the running task and never
-      // shows as queued. It only lands in the queue if steering turns out to be impossible.
       if (steer && canSteer(agent) && threadRef === ctx.chat.state.threadRef) void steerQueued(agent, queued, true);
       else addQueuedRun(threadRef, queued);
       return true;

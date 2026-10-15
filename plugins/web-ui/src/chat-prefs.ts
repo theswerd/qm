@@ -11,8 +11,6 @@ const DEFAULTS: Record<ChatPrefKey, boolean> = {
   [ALWAYS_STEER_KEY]: false,
 };
 
-// The server copy is authoritative; this browser copy only keeps the first paint from
-// flashing the default before the server answers.
 const CACHE_PREFIX = "chat-pref:";
 
 const values = new Map<ChatPrefKey, boolean>();
