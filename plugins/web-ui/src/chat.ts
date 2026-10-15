@@ -926,6 +926,12 @@ export function createChatSurface(
     return (work: WorkBlock) => {
       if (agent !== chatState.agent) return;
       appendConsumedSteers(agent.state.messages, work);
+      if (
+        work.runtime?.switchedBy &&
+        (work.runtime.harnessId !== chatState.turnRuntime?.harnessId ||
+          work.runtime.modelId !== chatState.turnRuntime.modelId)
+      )
+        ctx.composer.adoptTurnRuntime(work.runtime, agent);
       if (work.runtime) chatState.turnRuntime = work.runtime;
       else if (work !== chatState.liveWork) chatState.turnRuntime = null;
       chatState.liveWork = work;

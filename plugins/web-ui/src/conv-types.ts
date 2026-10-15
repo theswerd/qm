@@ -147,6 +147,7 @@ export interface ComposerSurface {
   resizeComposer(): void;
   currentModelOption(): ModelOption | undefined;
   followsDefault(): boolean;
+  adoptTurnRuntime(runtime: TurnRuntime, agent: Agent): void;
   carryModelPick(fromThreadRef: string | null, toThreadRef: string): void;
   refreshRuntimeSelection(scopeId: string | null, agent?: Agent, refresh?: boolean): Promise<void>;
   onDragEnter(e: DragEvent): void;

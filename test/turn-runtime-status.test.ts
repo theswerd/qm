@@ -6,12 +6,21 @@ import { testConfig } from "./support/test-config.ts";
 
 let started!: () => void;
 let release!: () => void;
+let handoffTo: string | undefined;
 mock.module("../src/harness/mock-harness.ts", {
   namedExports: {
     ...mockHarness,
     createMockHarness: () => {
       const harness = mockHarness.createMockHarness();
       harness.turns.runTurn = async () => {
+        if (handoffTo) {
+          const modelId = handoffTo;
+          handoffTo = undefined;
+          return {
+            reply: "",
+            runtimeHandoff: { choice: { harnessId: "mock", modelId }, lifetime: "task" as const },
+          };
+        }
         started();
         await new Promise<void>((resolve) => {
           release = resolve;
@@ -50,6 +59,35 @@ test("a run reports the runtime its turn runs on while working and after it fini
       await built.runs.waitFor(queued.runId!, 5000);
       assert.deepEqual((await built.runs.get(queued.runId!))?.result?.runtime, live);
     }
+  } finally {
+    release?.();
+    await built.runtime.stop();
+  }
+});
+
+test("a runtime the agent switches to mid-turn is reported as its switch", async () => {
+  const built = buildApp(testConfig({ workers: 1 }));
+  built.runtime.start();
+  try {
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    handoffTo = "claude-haiku-5-5";
+    const queued = await built.app.turn({
+      surface: "web",
+      liveActor: true,
+      actor: { externalId: "U1" },
+      conversation: { kind: "dm", threadRef: "runtime-switch" },
+      text: "switch me to haiku",
+      async: true,
+    });
+    await ready;
+    const live = (await built.app.getRun(queued.runId!))?.runtime;
+    assert.equal(live?.modelId, "claude-haiku-5-5");
+    assert.equal(live.switchedBy, "agent");
+    release();
+    await built.runs.waitFor(queued.runId!, 5000);
+    assert.deepEqual((await built.runs.get(queued.runId!))?.result?.runtime, live);
   } finally {
     release?.();
     await built.runtime.stop();

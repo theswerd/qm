@@ -3152,9 +3152,11 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             return errMessage(error);
           }
         };
+        let switchedByAgent = false;
         const adoptRuntime = async (choice: RuntimeChoice) => {
           const error = await checkRuntimeAuth(choice);
           if (error) throw new NonRetryableTurnError(error);
+          switchedByAgent = true;
           ({ userProviderKeys, userModelOverride, userHarnessOverride, claudeOauthToken } =
             await loadRuntimeAuth(choice));
           requestedRuntime = userModelOverride ? { ...choice, modelId: userModelOverride } : choice;
@@ -3376,7 +3378,8 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               ? { runtimePinned: true }
               : {}),
             runtimeActorId: actor.id,
-            onRuntime: (runtime: TurnRuntime) => {
+            onRuntime: (reported: TurnRuntime) => {
+              const runtime: TurnRuntime = switchedByAgent ? { ...reported, switchedBy: "agent" } : reported;
               turnRuntime = runtime;
               if (input.runId) deps.turnStream?.noteRuntime(input.runId, runtime);
             },

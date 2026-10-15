@@ -785,6 +785,7 @@ export interface TurnRuntime {
   modelId: string;
   label?: string;
   routedBy?: string;
+  switchedBy?: "agent";
 }
 
 export interface TurnResult {

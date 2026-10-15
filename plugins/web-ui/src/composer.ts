@@ -29,6 +29,7 @@ import {
   type CoreAttachment,
   type PendingApproval,
   type QueuedRun,
+  type TurnRuntime,
 } from "./core-bridge";
 import { errMessage } from "../../chassis/src/errors";
 import { browserRenderableImage, fieldSelect } from "./ui";
@@ -1901,6 +1902,12 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     ctx.chat.drawActiveChat(agent);
   }
 
+  function adoptTurnRuntime(runtime: TurnRuntime, agent: Agent): void {
+    const selected = currentModelOption();
+    if (selected && selected.harnessId === runtime.harnessId && selected.model.id === runtime.modelId) return;
+    selectModel(`${runtime.harnessId}:${runtime.modelId}`, agent);
+  }
+
   function selectModel(value: string, agent: Agent): void {
     const option = getModelOptions(scopeKey()).find((candidate) => candidate.value === value);
     if (!option) return;
@@ -2111,6 +2118,7 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     resizeComposer,
     currentModelOption,
     followsDefault,
+    adoptTurnRuntime,
     carryModelPick,
     refreshRuntimeSelection,
     onDragEnter,
