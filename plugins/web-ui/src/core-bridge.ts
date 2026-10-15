@@ -350,6 +350,7 @@ export interface TranscriptPage {
   earlierEntries?: number;
   pins?: SessionPin[];
   goal?: GoalStripState;
+  runtime?: TurnRuntime;
 }
 
 export async function fetchTranscript(
@@ -445,6 +446,14 @@ export interface WorkBlock {
   activity: ToolActivity[];
   pendingApprovals?: PendingApproval[];
   goal?: GoalStripState;
+  runtime?: TurnRuntime;
+}
+
+export interface TurnRuntime {
+  harnessId: string;
+  modelId: string;
+  label?: string;
+  routedBy?: string;
 }
 
 export function workPausedForApproval(work: WorkBlock): boolean {
@@ -491,6 +500,7 @@ export type AssistantWork = AssistantMessage & {
 export interface RunPoll {
   status: "pending" | "running" | "done" | "failed";
   goal?: GoalStripState;
+  runtime?: TurnRuntime;
   input?: {
     runId: string;
     seq: number | null;
@@ -1099,15 +1109,14 @@ function turnRequestBody(
   const { idempotencyKey, attachments = [] } = send;
   const turnOptions = getTurnOptions?.() ?? {};
   const thinkingLevel =
-    !turnOptions.harness || harnessSupportsEffort(turnOptions.harness)
+    turnOptions.harness && harnessSupportsEffort(turnOptions.harness)
       ? (turnOptions.effortLevel ?? agent.state.thinkingLevel ?? defaultEffortForModel(model))
       : undefined;
   const timezone = browserTimezone();
   return {
     text,
     threadRef,
-    ...(turnOptions.harness ? { harness: turnOptions.harness } : {}),
-    model: model.id,
+    ...(turnOptions.harness ? { harness: turnOptions.harness, model: model.id } : {}),
     ...(thinkingLevel ? { thinkingLevel } : {}),
     ...(typeof turnOptions.fastMode === "boolean" ? { fastMode: turnOptions.fastMode } : {}),
     ...(timezone ? { timezone } : {}),
@@ -1384,6 +1393,10 @@ function applyRun(
   setWorkStale(work, run.stale === true, notify);
   if (work && run.goal && JSON.stringify(run.goal) !== JSON.stringify(work.goal)) {
     work.goal = run.goal;
+    notify?.();
+  }
+  if (work && run.runtime && JSON.stringify(run.runtime) !== JSON.stringify(work.runtime)) {
+    work.runtime = run.runtime;
     notify?.();
   }
   const p = typeof run.partial === "string" ? run.partial : "";

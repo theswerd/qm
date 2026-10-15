@@ -349,6 +349,20 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     return modelOptionFor(picked ?? defaultModelValue(scopeKey()), scopeKey());
   }
 
+  function followsDefault(): boolean {
+    const effective = getRuntimeConfig(scopeKey())?.effective;
+    const selected = currentModelOption();
+    if (!effective || !selected || selected.value !== defaultModelValue(scopeKey())) return false;
+    const levels = effortLevelsForHarness(selected.harnessId, selected.model);
+    const effort = (effective.effortLevel as EffortLevel | undefined) ?? defaultEffortForModel(selected.model);
+    const defaultEffort = levels.some((level) => level.value === effort) ? effort : levels[0]!.value;
+    const defaultFast =
+      effective.fastMode === true &&
+      harnessSupportsFastMode(selected.harnessId) &&
+      modelSupportsFastMode(scopeKey(), selected.model.id);
+    return composerState.effortLevel === defaultEffort && Boolean(composerState.fastMode) === defaultFast;
+  }
+
   async function refreshRuntimeSelection(scopeId: string | null, agent?: Agent, refresh = false): Promise<void> {
     const request = ++runtimeRequest;
     const actualScope = runtimeScopeKey(scopeId);
@@ -555,7 +569,13 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     }
 
     const compact = Boolean(ctx.pane) || isPhone();
-    const runtimeControls = modelPicker.render(agent, selectedModel, inputBlocked);
+    const turnRuntime = ctx.chat.turnRuntime();
+    const routed =
+      turnRuntime?.routedBy &&
+      (turnRuntime.harnessId !== selectedModel.harnessId || turnRuntime.modelId !== selectedModel.model.id)
+        ? turnRuntime
+        : undefined;
+    const runtimeControls = modelPicker.render(agent, selectedModel, inputBlocked, routed);
     return html`
       <form
         class="composer-wrap ${compact ? "compact" : ""}"
@@ -2092,6 +2112,7 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     },
     resizeComposer,
     currentModelOption,
+    followsDefault,
     carryModelPick,
     refreshRuntimeSelection,
     onDragEnter,

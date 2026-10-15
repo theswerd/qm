@@ -455,7 +455,12 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
     </div>`;
   }
 
-  function render(agent: T, choice: ModelOption | undefined, disabled: boolean): TemplateResult {
+  function render(
+    agent: T,
+    choice: ModelOption | undefined,
+    disabled: boolean,
+    routed?: { modelId: string; label?: string; routedBy?: string },
+  ): TemplateResult {
     const selected = choice ?? catalog.options()[0];
     if (!selected) return html`<span class="context-model-status">No models available</span>`;
     const open = composerState.openMenu === "loadout";
@@ -471,6 +476,19 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
     const fastUnsupportedReason = modelSupportsFast ? "Not supported by this harness" : "Not supported by this model";
     const fastOn = fastAvailable && effectiveFastMode();
     const speedLabel = (ultrafastOn && ", Ultrafast") || (fastOn && ", Fast") || "";
+    const settingLabel = choice ? modelLabel(choice) : (bindings.emptyLabel ?? "Choose model");
+    const settingAria = choice
+      ? `Model: ${settingLabel}, ${effortLabel(composerState.effortLevel)} effort${speedLabel}`
+      : settingLabel;
+    const routedName = routed ? (routed.label ?? routed.modelId) : "";
+    const triggerLabel = routed
+      ? `Model: ${routedName}, routed by ${routed.routedBy} for this turn; your setting is ${settingLabel}`
+      : settingAria;
+    const routedTip = routed
+      ? `The ${routed.routedBy} rule ran this turn on ${routedName}. Your setting is ${settingLabel}.`
+      : "";
+    const effortSuffix = choice ? effortText(composerState.effortLevel) : "";
+    const suffix = routed ? `routed by ${routed.routedBy}` : effortSuffix;
     return html`<div
       class="menu-control loadout-control"
       data-align="left"
@@ -492,7 +510,8 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
         class="menu-button loadout-button ${ultrafastOn ? "ultrafast-active" : ""}"
         data-focus-key=${`${loadoutMenuId}-trigger`}
         type="button"
-        aria-label=${choice ? `Model: ${modelLabel(choice)}, ${effortLabel(composerState.effortLevel)} effort${speedLabel}` : (bindings.emptyLabel ?? "Choose model")}
+        aria-label=${triggerLabel}
+        ${tip(routedTip)}
         aria-haspopup="menu"
         aria-expanded=${open ? "true" : "false"}
         aria-controls=${loadoutMenuId}
@@ -520,8 +539,8 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
           placeLoadout();
         }}
       >
-        <span class="menu-label">${choice ? modelLabel(choice) : (bindings.emptyLabel ?? "Choose model")}</span>
-        ${choice ? html`<span class="menu-suffix">${effortText(composerState.effortLevel)}</span>` : nothing}
+        <span class="menu-label">${routed ? routedName : settingLabel}</span>
+        ${suffix ? html`<span class="menu-suffix">${suffix}</span>` : nothing}
         ${ultrafastOn ? html`<span class="loadout-ultrafast-badge">${icon(Zap, 12)} Ultrafast</span>` : nothing}
         ${fastOn ? html`<span class="loadout-bolt">${icon(Zap, 13)}</span>` : nothing}${icon(ChevronDown, 13)}
       </button>

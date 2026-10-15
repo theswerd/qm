@@ -177,6 +177,7 @@ test("the personal-account picker preserves composer choices and saves context d
         },
         activePendingApprovals: () => [],
         hasUnresolvedApproval: () => false,
+        turnRuntime: () => null,
         hasLiveRun: () => false,
         drawActiveChat: draw,
       },
@@ -713,6 +714,26 @@ test("the personal-account picker preserves composer choices and saves context d
       assert.equal(button('[aria-label="Ultrafast"]').getAttribute("aria-checked"), "false");
       assert.equal(composer!.state.effortLevel, "high");
     }
+    config.effective = { harnessId: "pi", modelId: "gamma" };
+    localStorage.removeItem("web-ui:loadout");
+    ctx.chat.state.threadRef = "web:tester:server-default";
+    await composer!.refreshRuntimeSelection(null, agent, true);
+    await mount();
+    assert.equal(composer!.followsDefault(), true, "a chat on the default leaves the model to the server");
+    const routed = { harnessId: "pi", modelId: "beta", label: "Beta", routedBy: "hard-task" };
+    (ctx.chat as unknown as { turnRuntime: () => unknown }).turnRuntime = () => routed;
+    draw();
+    assert.equal(host.querySelector(".loadout-button .menu-label")?.textContent?.trim(), "Beta");
+    assert.equal(
+      button(".loadout-button").getAttribute("aria-label"),
+      "Model: Beta, routed by hard-task for this turn; your setting is Gamma",
+    );
+    localStorage.setItem("web-ui:model-picks", JSON.stringify([["web:tester:picked", "pi:beta"]]));
+    window.dispatchEvent(new dom.window.StorageEvent("storage", { key: "web-ui:model-picks" }));
+    ctx.chat.state.threadRef = "web:tester:picked";
+    await mount();
+    assert.equal(composer!.followsDefault(), false, "an explicit pick is sent with each message");
+    assert.match(button(".loadout-button").getAttribute("aria-label")!, /^Model: Beta, /);
   } finally {
     resetContext?.();
     composer?.dispose();

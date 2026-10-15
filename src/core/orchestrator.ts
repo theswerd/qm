@@ -30,6 +30,7 @@ import type {
   SessionEntry,
   SessionType,
   TurnResult,
+  TurnRuntime,
   PendingApproval,
   PendingApprovalRecord,
 } from "../types.ts";
@@ -3020,6 +3021,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         let firstChunkAt: number | undefined;
         let lastChunkAt: number | undefined;
         const emittedEntries: SessionEntry[] = [];
+        let turnRuntime: TurnRuntime | undefined;
         const syntheticPrompt = syntheticInput || partial || approvalReplay || !!releasedToolOutput;
         failureUserPayload =
           !syntheticPrompt && input.text.trim()
@@ -3374,6 +3376,10 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               ? { runtimePinned: true }
               : {}),
             runtimeActorId: actor.id,
+            onRuntime: (runtime: TurnRuntime) => {
+              turnRuntime = runtime;
+              if (input.runId) deps.turnStream?.noteRuntime(input.runId, runtime);
+            },
             ...(runtimePurpose ? { runtimePurpose } : {}),
             ...(deps.runtime && input.runId
               ? {
@@ -3989,6 +3995,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
           };
         }
 
+        if (turnRuntime) finalResult = { ...finalResult, runtime: turnRuntime };
         await fallbackTitleWrite;
 
         if (input.background && finalResult.status !== "pending_approval") {
