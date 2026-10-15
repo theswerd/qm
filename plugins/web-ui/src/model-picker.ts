@@ -1,7 +1,6 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
 import { Check, ChevronDown, ChevronRight, Plus, Sparkles, Star, X, Zap } from "lucide";
-import type { TurnRuntime } from "./core-bridge";
 import { icon, modelMark } from "./icons.ts";
 import { getRuntimeConfig, type RuntimeChange } from "./runtime-config-cache.ts";
 import {
@@ -37,6 +36,13 @@ function effortText(level: EffortLevel | string): TemplateResult | string {
   const label = effortLabel(level as EffortLevel);
   const rank = EFFORT_LEVELS.findIndex((option) => option.value === level);
   return rank >= EFFORT_PEAK_FLOOR ? html`<span class="effort-peak">${label}</span>` : label;
+}
+
+interface RoutedRuntime {
+  harnessId: string;
+  modelId: string;
+  label?: string;
+  change?: { rule: string } | { agent: string };
 }
 
 export interface ModelCatalog {
@@ -456,7 +462,12 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
     </div>`;
   }
 
-  function render(agent: T, choice: ModelOption | undefined, disabled: boolean, routed?: TurnRuntime): TemplateResult {
+  function render(
+    agent: T,
+    choice: ModelOption | undefined,
+    disabled: boolean,
+    routed?: RoutedRuntime,
+  ): TemplateResult {
     const selected = choice ?? catalog.options()[0];
     if (!selected) return html`<span class="context-model-status">No models available</span>`;
     const open = composerState.openMenu === "loadout";
