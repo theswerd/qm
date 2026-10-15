@@ -613,6 +613,9 @@ export interface SessionStore {
 
   searchEntries(principalId: string, query: string, limit?: number): Promise<EntrySearchHit[]>;
 
+  /** Sessions whose (participant or session) title contains the query, or whose id equals it — newest activity first. */
+  searchSessionTitles(principalId: string, query: string, limit?: number): Promise<Session[]>;
+
   appendSearchEntries(lease: Lease, rows: readonly NewSearchEntry[]): Promise<void>;
   searchIndexCoverage(sessionId: string): Promise<number>;
   missingSearchEntries(sessionId: string): Promise<number>;
