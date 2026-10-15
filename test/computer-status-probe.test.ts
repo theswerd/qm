@@ -73,6 +73,19 @@ test("computerStatus never provisions when the backend reports no machine", asyn
   assert.equal(provisions, 0, "a status check must not cold-start a box");
 });
 
+test("computerStatus does not provision a VM that the provider reports as stopped or starting", async () => {
+  let provisions = 0;
+  for (const lifecycleState of ["stopped", "starting"] as const) {
+    const status = { machine: `VM ${lifecycleState}`, provisioned: true, lifecycleState, guestResponsive: false };
+    const ctx = ctxFor({ computerStatus: async () => status }, async () => {
+      provisions += 1;
+      return handle;
+    });
+    assert.deepEqual(await ctx.computerStatus(), status);
+  }
+  assert.equal(provisions, 0);
+});
+
 test("a probe that hangs on the real exec path reports NOT answering within the probe bound", async () => {
   const ctx = ctxFor(
     {

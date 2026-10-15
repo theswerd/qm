@@ -965,7 +965,7 @@ export function createAgentTools(ref: ToolContextRef, opts?: AgentToolsOptions):
           ? `; cpu ${s.resources.cpuUsedPct}%, memory ${s.resources.memUsedMb}/${s.resources.memTotalMb} MiB, disk ${s.resources.diskUsedGb}/${s.resources.diskTotalGb} GiB`
           : "";
         let shellLine = s.guestResponsive ? "answering" : `NOT answering${s.probeError ? ` (${s.probeError})` : ""}`;
-        if (s.lifecycleState === "paused") shellLine = "paused (not probed)";
+        if (s.lifecycleState && s.lifecycleState !== "running") shellLine = `${s.lifecycleState} (not probed)`;
         const recoveryLines: string[] = [];
         if (s.lifecycleState) recoveryLines.push(`lifecycle: ${s.lifecycleState}`);
         if (s.expiresAtMs !== undefined)

@@ -171,7 +171,7 @@ export interface ProcessSession {
 }
 
 export interface ComputerStatus {
-  lifecycleState?: "running" | "paused";
+  lifecycleState?: "running" | "starting" | "pausing" | "paused" | "stopped";
   expiresAtMs?: number;
   recovery?: {
     strategy: "provider_snapshot" | "provider_pause" | "workspace_snapshot";
@@ -198,10 +198,12 @@ interface ComputerResources {
   diskTotalGb: number;
 }
 
-export type ComputerVerdict = "ok" | "wedged" | "down";
+export type ComputerVerdict = "ok" | "waiting" | "wedged" | "down";
 
 export function computerVerdict(s: ComputerStatus): ComputerVerdict {
   if (s.guestResponsive || s.lifecycleState === "paused") return "ok";
+  if (s.lifecycleState === "starting" || s.lifecycleState === "pausing") return "waiting";
+  if (s.lifecycleState === "stopped") return "down";
   return s.provisioned ? "wedged" : "down";
 }
 

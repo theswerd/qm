@@ -152,6 +152,29 @@ export async function resolveSandbox(opts: {
     return { backend: "agent37", env, detail: "Agent37 (api.agent37.com)", publicApiUrl: apiUrl, warnings };
   }
 
+  if (backend === "freestyle") {
+    const apiKey = opts.baseEnv.FREESTYLE_API_KEY?.trim();
+    if (!apiKey) throw new Error("--sandbox freestyle requires FREESTYLE_API_KEY in the environment");
+    let apiUrl = opts.baseEnv.PUBLIC_API_URL || null;
+    if (!apiUrl) {
+      apiUrl = await startQuickTunnel(opts.corePort, opts.lock, opts.log);
+      if (!apiUrl)
+        warnings.push(
+          "cloudflared tunnel didn't come up -- agent self-API (crons/sends) won't be reachable from the sandbox",
+        );
+    }
+    const env: Record<string, string> = {
+      SANDBOX_BACKEND: "freestyle",
+      FREESTYLE_API_KEY: apiKey,
+      FREESTYLE_NAME_PREFIX:
+        opts.baseEnv.FREESTYLE_NAME_PREFIX ||
+        `qmdev-${createHash("sha1").update(opts.worktree).digest("hex").slice(0, 12)}`,
+    };
+    if (opts.baseEnv.FREESTYLE_SNAPSHOT_ID) env.FREESTYLE_SNAPSHOT_ID = opts.baseEnv.FREESTYLE_SNAPSHOT_ID;
+    if (apiUrl) env.PUBLIC_API_URL = apiUrl;
+    return { backend: "freestyle", env, detail: "Freestyle VMs", publicApiUrl: apiUrl, warnings };
+  }
+
   if (backend === "superserve") {
     const apiKey = opts.baseEnv.SUPERSERVE_API_KEY?.trim();
     const template = opts.baseEnv.SUPERSERVE_TEMPLATE?.trim();

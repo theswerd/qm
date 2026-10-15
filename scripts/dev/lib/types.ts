@@ -105,7 +105,15 @@ export interface StatusReport {
 }
 
 export type DevSandboxBackend =
-  "local" | "sprites" | "smolmachines" | "e2b" | "porter" | "agent37" | "superserve" | "do-managed-agents";
+  | "local"
+  | "sprites"
+  | "smolmachines"
+  | "e2b"
+  | "porter"
+  | "agent37"
+  | "superserve"
+  | "freestyle"
+  | "do-managed-agents";
 export type DevSandboxChoice = DevSandboxBackend | "auto";
 
 export interface BootSpec {

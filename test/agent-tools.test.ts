@@ -601,6 +601,30 @@ test("computer status exposes paused lifecycle and recovery deadlines without cl
     assert.ok(output.includes(expected), expected);
 });
 
+test("computer status reports stopped and starting VMs without wedged-shell advice", async () => {
+  for (const lifecycleState of ["stopped", "starting"] as const) {
+    const ref: ToolContextRef = {
+      current: {
+        ...fakeToolContext(),
+        computerStatus: async () => ({
+          machine: `VM ${lifecycleState}`,
+          provisioned: true,
+          guestResponsive: false,
+          lifecycleState,
+        }),
+      },
+      emit: () => {},
+      scopeLabel: "personal:U1",
+    };
+    const execute = createAgentTools(ref).find((tool) => tool.name === "sandbox")!;
+    const out = (await call(execute, { action: "status", purpose: "p" })) as {
+      content: Array<{ text?: string }>;
+    };
+    assert.match(out.content[0]!.text!, new RegExp(`shell: ${lifecycleState} \\(not probed\\)`));
+    assert.doesNotMatch(out.content[0]!.text!, /WEDGED|NOT answering/);
+  }
+});
+
 test("computer status verdicts: answering guest is ok, dead guest without a machine is down", async () => {
   const base = fakeToolContext();
   const cases: Array<{ status: ComputerStatus; wedged: boolean }> = [

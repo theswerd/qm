@@ -795,7 +795,7 @@ export function createToolContext(deps: ToolContextDeps): ToolContext {
       : {}),
     async computerStatus(sandboxId?: string): Promise<ComputerStatus> {
       const probe = async (status: ComputerStatus, provision: () => Promise<SandboxHandle>) => {
-        if (!status.provisioned || status.lifecycleState === "paused") return status;
+        if (!status.provisioned || (status.lifecycleState && status.lifecycleState !== "running")) return status;
         try {
           const code = await withTimeout(
             async () =>
