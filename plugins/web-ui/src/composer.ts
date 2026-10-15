@@ -1,4 +1,5 @@
 import { emojiCompletion } from "./emoji-completion";
+import { alwaysSteer } from "./chat-prefs";
 import { appEditSlug } from "./app-edit";
 import { runtimeConfigKey, loadRuntimeConfig, saveRuntimeConfig, subscribeRuntimeConfig } from "./runtime-config-store";
 import { getRuntimeConfig } from "./runtime-config-cache.ts";
@@ -795,16 +796,37 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
       <button class="stop-btn" type="button" aria-label="Stop" ${tip("Stop")} @click=${() => stopStreaming(agent)}>
         ${icon(Square, 16)}
       </button>
-      <button
-        class="send-btn"
-        type="submit"
-        ${tip("Queue for after this turn")}
-        aria-label="Queue for after this turn"
-        ?disabled=${!composerCanSend()}
-      >
-        ${icon(ArrowUp, 16)}
-      </button>
+      ${
+        alwaysSteer() && canSteer(agent)
+          ? html`<button
+              class="send-btn"
+              type="submit"
+              ${tip("Steer the running task")}
+              aria-label="Steer the running task"
+              ?disabled=${!composerCanSend()}
+            >
+              ${icon(CornerDownRight, 16)}
+            </button>`
+          : html`<button
+              class="send-btn"
+              type="submit"
+              ${tip("Queue for after this turn")}
+              aria-label="Queue for after this turn"
+              ?disabled=${!composerCanSend()}
+            >
+              ${icon(ArrowUp, 16)}
+            </button>`
+      }
     `;
+  }
+
+  function canSteer(agent: Agent): boolean {
+    return (
+      agent.state.isStreaming &&
+      !ctx.chat.isStopping() &&
+      ctx.chat.hasLiveRun() &&
+      harnessSupportsSteer(currentModelOption()?.harnessId ?? "")
+    );
   }
 
   function queuedStrip(agent: Agent): TemplateResult | typeof nothing {
@@ -814,11 +836,7 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     const threadRef = ctx.chat.state.threadRef;
     const steering = steeringRunsFor(threadRef, agent);
     if (!queued.length && !steering.length) return nothing;
-    const steerable =
-      agent.state.isStreaming &&
-      !ctx.chat.isStopping() &&
-      ctx.chat.hasLiveRun() &&
-      harnessSupportsSteer(currentModelOption()?.harnessId ?? "");
+    const steerable = canSteer(agent);
     const steerTip = (): string => {
       if (steerable) return "Steer the running task with this instead of waiting";
       return "Nothing running can take this. It will go out as its own turn";
@@ -1373,7 +1391,8 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
       if (stillHere()) restoreStagedOnFailure(text, sendable, composerState.error || "Could not queue the files.");
       return ctx.chat.drawActiveChat(agent);
     }
-    if (!(await enqueueTurn(agent, threadRef, text, uploaded, queuedFilesKey(sendable)))) {
+    const steer = alwaysSteer() && canSteer(agent);
+    if (!(await enqueueTurn(agent, threadRef, text, uploaded, queuedFilesKey(sendable), steer))) {
       if (stillHere()) restoreStagedOnFailure(text, sendable, composerState.error);
     } else if (transientIds.size && stillHere()) {
       restageAttachments(
@@ -1398,13 +1417,17 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     text: string,
     attachments: CoreAttachment[] = [],
     filesKey = "",
+    steer = false,
   ): Promise<boolean> {
     const idempotencyKey = queueSendKey(threadRef, text, filesKey);
     try {
       const queued = await queueTurn(threadRef, text, agent, ctx.chat.currentTurnOptions, idempotencyKey, attachments);
       failedQueueSend = null;
-      setQueuedRuns(threadRef, [...queuedRunsFor(threadRef).filter((r) => r.runId !== queued.runId), queued]);
       bumpSessionActivity(threadRef);
+      // With the steer preference on, the message goes straight to the running task and never
+      // shows as queued. It only lands in the queue if steering turns out to be impossible.
+      if (steer && canSteer(agent) && threadRef === ctx.chat.state.threadRef) void steerQueued(agent, queued, true);
+      else addQueuedRun(threadRef, queued);
       return true;
     } catch (err) {
       failedQueueSend = { threadRef, text, filesKey, idempotencyKey };
@@ -1467,21 +1490,41 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
 
   const pendingSteers = new Set<string>();
 
-  async function steerQueued(agent: Agent, queued: QueuedRun): Promise<void> {
+  function addQueuedRun(threadRef: string, queued: QueuedRun): void {
+    setQueuedRuns(threadRef, [...queuedRunsFor(threadRef).filter((r) => r.runId !== queued.runId), queued]);
+  }
+
+  function markSteering(threadRef: string, queued: QueuedRun): void {
+    steeringRuns.set(threadRef, [
+      ...(steeringRuns.get(threadRef) ?? []).filter((run) => run.runId !== queued.runId),
+      { ...queued, ts: `queued-steer:${threadRef}:${queued.runId}` },
+    ]);
+  }
+
+  function unmarkSteering(threadRef: string, runId: string): void {
+    const rest = (steeringRuns.get(threadRef) ?? []).filter((run) => run.runId !== runId);
+    if (rest.length) steeringRuns.set(threadRef, rest);
+    else steeringRuns.delete(threadRef);
+  }
+
+  async function steerQueued(agent: Agent, queued: QueuedRun, fresh = false): Promise<void> {
     const threadRef = ctx.chat.state.threadRef;
-    if (!threadRef || !ctx.chat.hasLiveRun() || pendingSteers.has(queued.runId)) return;
+    if (!threadRef || !ctx.chat.hasLiveRun() || pendingSteers.has(queued.runId)) {
+      if (fresh && threadRef) addQueuedRun(threadRef, queued);
+      return;
+    }
     pendingSteers.add(queued.runId);
     composerState.error = "";
+    if (fresh) markSteering(threadRef, queued);
+    let fallBackToQueue = fresh;
     try {
       const outcome = await ctx.chat.signalLiveRun("steer", queued.text, queued.runId);
       if (outcome.ok || outcome.replayed) {
+        fallBackToQueue = false;
         forgetQueuedRun(threadRef, queued.runId);
         bumpSessionActivity(threadRef);
-        if (outcome.ok)
-          steeringRuns.set(threadRef, [
-            ...(steeringRuns.get(threadRef) ?? []).filter((run) => run.runId !== queued.runId),
-            { ...queued, ts: `queued-steer:${threadRef}:${queued.runId}` },
-          ]);
+        if (outcome.ok) markSteering(threadRef, queued);
+        else unmarkSteering(threadRef, queued.runId);
         if (
           !outcome.ok &&
           outcome.replayed &&
@@ -1498,13 +1541,19 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
         if (agent === ctx.chat.state.agent && threadRef === ctx.chat.state.threadRef)
           composerState.error = "The queued message changed. Try steering it again.";
       } else if (outcome.reason === "queued_started" || outcome.reason === "not_found") {
+        fallBackToQueue = false;
         forgetQueuedRun(threadRef, queued.runId);
+        unmarkSteering(threadRef, queued.runId);
       }
     } catch (err) {
       if (agent === ctx.chat.state.agent && threadRef === ctx.chat.state.threadRef)
         composerState.error = errMessage(err, "Could not confirm steering. Try again.");
     } finally {
       pendingSteers.delete(queued.runId);
+    }
+    if (fallBackToQueue) {
+      unmarkSteering(threadRef, queued.runId);
+      addQueuedRun(threadRef, queued);
     }
     if (agent !== ctx.chat.state.agent || threadRef !== ctx.chat.state.threadRef) return;
     ctx.chat.drawActiveChat(agent);

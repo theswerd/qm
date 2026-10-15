@@ -107,6 +107,7 @@ import {
 import { openSkillById, renderSkills, resetActiveSkill, routeSkillsHistory } from "./skills";
 import { watchAppAnnotations } from "./app-annotations";
 import { applyTheme, renderSettings, loadOpenNewChat, watchSystemTheme } from "./settings";
+import { loadChatPrefs } from "./chat-prefs";
 import { contextsState, ensureContexts, renderContexts, resetContextsState, resolveProjectScope } from "./contexts";
 import { appState, can, canView, isView, type AuthMode, type Me, type View } from "./shell-state";
 import { trapDialogFocus } from "./dialog-focus";
@@ -1090,6 +1091,7 @@ export async function boot(): Promise<void> {
   const runtimeConfigFetch = fetchRuntimeConfig();
   const remoteSplitFetch = fetchRemoteSplit();
   const openNewChatFetch = loadOpenNewChat();
+  void loadChatPrefs();
 
   let r: Response;
   try {
