@@ -6,7 +6,7 @@ import type { TurnResult } from "../types.ts";
 import type { Orchestrator } from "../core/orchestrator.ts";
 import { isNonRetryable, NonRetryableTurnError, turnFailureMessage } from "../core/turn-error.ts";
 import { resolveTurnOrigin } from "../core/turn-origin.ts";
-import { errorParks, type Run, type RunStore } from "./run-store.ts";
+import { countedClaims, errorParks, MAX_PREEMPTIONS, type Run, type RunStore } from "./run-store.ts";
 import { errMessage, errorAlreadyReported, reportFailure, swallow } from "../util/errors.ts";
 import { sleep } from "../util/async.ts";
 import { retryDelay } from "./retry-delay.ts";
@@ -27,7 +27,7 @@ const CLAIM_FAIL_REPORT_CONSECUTIVE = 20;
 export async function processRun(
   deps: ProcessDeps,
   run: Run,
-  opts?: { background?: boolean; shutdown?: AbortSignal },
+  opts?: { background?: boolean; shutdown?: AbortSignal; preempted?: () => boolean },
 ): Promise<TurnResult> {
   const token = run.leaseToken;
   if (token === null) throw new Error(`processRun called with an unleased run ${run.id}`);
@@ -74,7 +74,7 @@ export async function processRun(
       const { turnMs } = resolveSwarmSettings({ turnMs: run.request.turnWallClockMs });
       workDeadline = setTimeout(() => cancel.abort(), turnMs);
     }
-    if (run.request.swarm && run.attempts > 3) throw new NonRetryableTurnError("swarm claim budget exhausted");
+    if (run.request.swarm && countedClaims(run) > 3) throw new NonRetryableTurnError("swarm claim budget exhausted");
     const queueMs = run.startedAt !== null ? Math.max(0, run.startedAt - run.createdAt) : undefined;
     const result = await deps.orchestrator.handleTurn({
       ...run.request,
@@ -90,7 +90,9 @@ export async function processRun(
       ...(run.startedAt !== null ? { runStartedAt: run.startedAt } : {}),
     });
     stopBeat();
-    if (opts?.shutdown?.aborted) return result;
+    const finishedWhileParked =
+      opts?.preempted?.() === true && result.stopped !== true && result.status !== "pending_approval";
+    if (opts?.shutdown?.aborted && !finishedWhileParked) return result;
     if (!(await deps.runs.complete(run.id, token, result))) {
       throw new Error(`run ${run.id} lost its lease before completion`);
     }
@@ -120,7 +122,7 @@ export async function processRun(
     opts?.shutdown?.removeEventListener("abort", onShutdown);
     if (opts?.shutdown?.aborted)
       await deps.runs
-        .releaseLease(run.id, token)
+        .releaseLease(run.id, token, { preempted: opts.preempted?.() === true })
         .catch((e) => swallow(`worker: shutdown handback failed run=${run.id}; lease will expire after exit`, e));
   }
 }
@@ -135,6 +137,8 @@ export interface WorkerDeps extends ProcessDeps {
 
 export interface Worker {
   start(): void;
+  held(): { run: Run; claimedAt: number; preempted: boolean } | null;
+  preempt(runId: string): void;
   stopClaims(): Promise<void>;
   drained(): Promise<void>;
   stop(drainMs?: number): Promise<void>;
@@ -170,7 +174,13 @@ export function createWorker(deps: WorkerDeps): Worker {
   let stopped = false;
   let loopDone: Promise<void> | null = null;
   let claimDone: Promise<void> | null = null;
-  let inFlight: { shutdown: AbortController; done: Promise<void> } | null = null;
+  let inFlight: {
+    run: Run;
+    claimedAt: number;
+    preempted: boolean;
+    shutdown: AbortController;
+    done: Promise<void>;
+  } | null = null;
 
   async function loop(): Promise<void> {
     let claimFailures = 0;
@@ -214,17 +224,22 @@ export function createWorker(deps: WorkerDeps): Worker {
       }
       const shutdown = new AbortController();
       let settled!: () => void;
-      inFlight = {
+      const current: NonNullable<typeof inFlight> = {
+        run,
+        claimedAt: Date.now(),
+        preempted: false,
         shutdown,
         done: new Promise<void>((resolve) => {
           settled = resolve;
         }),
       };
+      inFlight = current;
       console.log(`[worker] claimed worker=${workerId} run=${run.id} thread=${run.sessionId}`);
       claimed();
       claimDone = null;
       try {
-        const work = () => processRun(deps, run, { background: true, shutdown: shutdown.signal });
+        const work = () =>
+          processRun(deps, run, { background: true, shutdown: shutdown.signal, preempted: () => current.preempted });
         if (deps.admittedWork) await deps.admittedWork.run(work);
         else await work();
       } catch (e) {
@@ -247,6 +262,12 @@ export function createWorker(deps: WorkerDeps): Worker {
   }
 
   return {
+    held: () => inFlight,
+    preempt(runId) {
+      if (inFlight?.run.id !== runId || inFlight.shutdown.signal.aborted) return;
+      inFlight.preempted = true;
+      inFlight.shutdown.abort();
+    },
     start() {
       if (loopDone) return;
       stopped = false;
@@ -270,6 +291,27 @@ export function createWorker(deps: WorkerDeps): Worker {
     async stop(drainMs = STOP_DRAIN_MS) {
       void stopClaims();
       await Promise.race([loopDone, sleep(drainMs, { unref: true })]);
+    },
+  };
+}
+
+export function createRunPreemption(deps: {
+  runs: RunStore;
+  workers: readonly Worker[];
+  canClaim?: () => boolean;
+  graceMs?: number;
+}): { sweep(): Promise<boolean> } {
+  return {
+    async sweep() {
+      if (deps.canClaim && !deps.canClaim()) return false;
+      if (deps.workers.some((worker) => !worker.held() || worker.held()!.preempted)) return false;
+      const victim = deps.workers
+        .map((worker) => worker.held()!)
+        .filter((held) => held.run.priority === 2 && held.run.preemptions < MAX_PREEMPTIONS)
+        .sort((a, b) => b.claimedAt - a.claimedAt)[0];
+      if (!victim || !(await deps.runs.personWaiting(Date.now() - (deps.graceMs ?? 1_000)))) return false;
+      for (const worker of deps.workers) worker.preempt(victim.run.id);
+      return true;
     },
   };
 }
