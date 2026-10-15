@@ -453,6 +453,6 @@ test("a turn_start rule only counts as routing the turn when it changes the runt
     await routeTurnRuntime(verdict, route, async () => {
       throw new Error("unsupported pinned model");
     }),
-    { choice: haiku, routedBy: "hard-task" },
+    { choice: haiku },
   );
 });

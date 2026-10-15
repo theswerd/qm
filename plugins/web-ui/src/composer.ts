@@ -350,17 +350,15 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
   }
 
   function followsDefault(): boolean {
-    const effective = getRuntimeConfig(scopeKey())?.effective;
     const selected = currentModelOption();
-    if (!effective || !selected || selected.value !== defaultModelValue(scopeKey())) return false;
-    const levels = effortLevelsForHarness(selected.harnessId, selected.model);
-    const effort = (effective.effortLevel as EffortLevel | undefined) ?? defaultEffortForModel(selected.model);
-    const defaultEffort = levels.some((level) => level.value === effort) ? effort : levels[0]!.value;
-    const defaultFast =
-      effective.fastMode === true &&
-      harnessSupportsFastMode(selected.harnessId) &&
-      modelSupportsFastMode(scopeKey(), selected.model.id);
-    return composerState.effortLevel === defaultEffort && Boolean(composerState.fastMode) === defaultFast;
+    const threadRef = ctx.chat.state.threadRef;
+    return (
+      !!selected &&
+      !(threadRef && threadModelPicks.has(threadRef)) &&
+      effortOverride === undefined &&
+      fastModeOverride === undefined &&
+      restoredLoadout?.value !== selected.value
+    );
   }
 
   async function refreshRuntimeSelection(scopeId: string | null, agent?: Agent, refresh = false): Promise<void> {

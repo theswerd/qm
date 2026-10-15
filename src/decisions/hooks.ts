@@ -74,6 +74,6 @@ export async function routeTurnRuntime<C extends { harnessId: string; modelId: s
     route(decision.runtime),
     requested().catch(swallowAs("decisions: requested runtime", undefined)),
   ]);
-  const changed = otherwise?.harnessId !== choice.harnessId || otherwise.modelId !== choice.modelId;
+  const changed = !!otherwise && (otherwise.harnessId !== choice.harnessId || otherwise.modelId !== choice.modelId);
   return changed ? { choice, routedBy: decision.ruleId } : { choice };
 }

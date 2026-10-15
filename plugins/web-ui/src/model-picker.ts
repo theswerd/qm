@@ -459,7 +459,7 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
     agent: T,
     choice: ModelOption | undefined,
     disabled: boolean,
-    routed?: { modelId: string; label?: string; routedBy?: string },
+    routed?: { harnessId: string; modelId: string; label?: string; routedBy?: string },
   ): TemplateResult {
     const selected = choice ?? catalog.options()[0];
     if (!selected) return html`<span class="context-model-status">No models available</span>`;
@@ -480,7 +480,10 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
     const settingAria = choice
       ? `Model: ${settingLabel}, ${effortLabel(composerState.effortLevel)} effort${speedLabel}`
       : settingLabel;
-    const routedName = routed ? (routed.label ?? routed.modelId) : "";
+    const routedOption = routed
+      ? catalog.options().find((option) => option.harnessId === routed.harnessId && option.model.id === routed.modelId)
+      : undefined;
+    const routedName = routedOption ? modelLabel(routedOption) : (routed?.label ?? routed?.modelId ?? "");
     const triggerLabel = routed
       ? `Model: ${routedName}, routed by ${routed.routedBy} for this turn; your setting is ${settingLabel}`
       : settingAria;

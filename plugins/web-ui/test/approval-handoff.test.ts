@@ -397,7 +397,7 @@ test("approval handoff unlocks queue and steer without losing pending decisions"
       await until(() => host.querySelector<HTMLButtonElement>("button.send-btn")?.disabled === false);
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
       await until(() => requests.filter((request) => request.path === "/api/turn").length === writes + 1);
-      assert.equal(requests.filter((request) => request.path === "/api/turn").at(-1)?.body?.model, undefined);
+      assert.equal(requests.filter((request) => request.path === "/api/turn").at(-1)?.body?.model, "replacement-api");
     });
   } finally {
     handoff.resolve();
