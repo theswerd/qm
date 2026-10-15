@@ -1,6 +1,7 @@
 import { html, nothing, type TemplateResult } from "lit";
 import { live } from "lit/directives/live.js";
 import { Check, ChevronDown, ChevronRight, Plus, Sparkles, Star, X, Zap } from "lucide";
+import type { TurnRuntime } from "./core-bridge";
 import { icon, modelMark } from "./icons.ts";
 import { getRuntimeConfig, type RuntimeChange } from "./runtime-config-cache.ts";
 import {
@@ -455,12 +456,7 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
     </div>`;
   }
 
-  function render(
-    agent: T,
-    choice: ModelOption | undefined,
-    disabled: boolean,
-    routed?: { harnessId: string; modelId: string; label?: string; routedBy?: string },
-  ): TemplateResult {
+  function render(agent: T, choice: ModelOption | undefined, disabled: boolean, routed?: TurnRuntime): TemplateResult {
     const selected = choice ?? catalog.options()[0];
     if (!selected) return html`<span class="context-model-status">No models available</span>`;
     const open = composerState.openMenu === "loadout";
@@ -484,14 +480,16 @@ export function createModelPicker<T>(bindings: ModelPickerBindings<T>) {
       ? catalog.options().find((option) => option.harnessId === routed.harnessId && option.model.id === routed.modelId)
       : undefined;
     const routedName = routedOption ? modelLabel(routedOption) : (routed?.label ?? routed?.modelId ?? "");
+    const rule = routed?.change && "rule" in routed.change ? routed.change.rule : undefined;
+    const reason = rule ? `routed by ${rule}` : "switched for this request";
     const triggerLabel = routed
-      ? `Model: ${routedName}, routed by ${routed.routedBy} for this turn; your setting is ${settingLabel}`
+      ? `Model: ${routedName}, ${reason}${rule ? " for this turn" : ""}; your setting is ${settingLabel}`
       : settingAria;
     const routedTip = routed
-      ? `The ${routed.routedBy} rule ran this turn on ${routedName}. Your setting is ${settingLabel}.`
+      ? `${rule ? `The ${rule} rule` : "The agent"} ran this ${rule ? "turn" : "request"} on ${routedName}. Your setting is ${settingLabel}.`
       : "";
     const effortSuffix = choice ? effortText(composerState.effortLevel) : "";
-    const suffix = routed ? `routed by ${routed.routedBy}` : effortSuffix;
+    const suffix = routed ? reason : effortSuffix;
     return html`<div
       class="menu-control loadout-control"
       data-align="left"

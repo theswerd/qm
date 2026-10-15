@@ -310,7 +310,7 @@ test("the router reports the runtime each turn runs on, and the rule that routed
     stubTurn([], { onRuntime: (runtime) => reported.push(runtime) }),
   );
   assert.deepEqual(reported, [
-    { harnessId: "claude", modelId: "claude-haiku-5-5", label: "Haiku 5.5", routedBy: "hard-task" },
+    { harnessId: "claude", modelId: "claude-haiku-5-5", label: "Haiku 5.5", change: { rule: "hard-task" } },
     { harnessId: "claude", modelId: "claude-opus-5-5", label: "Opus 5.5" },
   ]);
 });

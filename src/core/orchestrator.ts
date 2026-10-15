@@ -3152,16 +3152,16 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             return errMessage(error);
           }
         };
-        let switchedByAgent = false;
-        const adoptRuntime = async (choice: RuntimeChoice) => {
+        let agentSwitch: "task" | "scope" | undefined;
+        const adoptRuntime = async (choice: RuntimeChoice, lifetime: "task" | "scope") => {
           const error = await checkRuntimeAuth(choice);
           if (error) throw new NonRetryableTurnError(error);
-          switchedByAgent = true;
+          agentSwitch = lifetime;
           ({ userProviderKeys, userModelOverride, userHarnessOverride, claudeOauthToken } =
             await loadRuntimeAuth(choice));
           requestedRuntime = userModelOverride ? { ...choice, modelId: userModelOverride } : choice;
         };
-        if (restoredRuntime) await adoptRuntime(restoredRuntime);
+        if (restoredRuntime) await adoptRuntime(restoredRuntime, "task");
         if (automatedTurn && input.model && inputHarness) {
           const error = await deps.validateScheduledRuntime?.(
             scopeId,
@@ -3379,7 +3379,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               : {}),
             runtimeActorId: actor.id,
             onRuntime: (reported: TurnRuntime) => {
-              const runtime: TurnRuntime = switchedByAgent ? { ...reported, switchedBy: "agent" } : reported;
+              const runtime: TurnRuntime = agentSwitch ? { ...reported, change: { agent: agentSwitch } } : reported;
               turnRuntime = runtime;
               if (input.runId) deps.turnStream?.noteRuntime(input.runId, runtime);
             },
@@ -3638,7 +3638,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
               throw new NonRetryableTurnError("The task reached its wall-clock limit during runtime handoff");
             const recovery = "context" in segment.runtimeHandoff;
             if ("choice" in segment.runtimeHandoff) {
-              await adoptRuntime(segment.runtimeHandoff.choice);
+              await adoptRuntime(segment.runtimeHandoff.choice, segment.runtimeHandoff.lifetime);
               await deps.harness.turns.resetSession?.(session.id);
             }
             let resumedHistory = filterHistory(

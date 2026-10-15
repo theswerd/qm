@@ -926,12 +926,15 @@ export function createChatSurface(
     return (work: WorkBlock) => {
       if (agent !== chatState.agent) return;
       appendConsumedSteers(agent.state.messages, work);
+      const change = work.runtime?.change;
       if (
-        work.runtime?.switchedBy &&
-        (work.runtime.harnessId !== chatState.turnRuntime?.harnessId ||
-          work.runtime.modelId !== chatState.turnRuntime.modelId)
+        change &&
+        "agent" in change &&
+        change.agent === "scope" &&
+        (work.runtime!.harnessId !== chatState.turnRuntime?.harnessId ||
+          work.runtime!.modelId !== chatState.turnRuntime.modelId)
       )
-        ctx.composer.adoptTurnRuntime(work.runtime, agent);
+        void ctx.composer.followScopeDefault(agent);
       if (work.runtime) chatState.turnRuntime = work.runtime;
       else if (work !== chatState.liveWork) chatState.turnRuntime = null;
       chatState.liveWork = work;

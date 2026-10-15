@@ -29,7 +29,6 @@ import {
   type CoreAttachment,
   type PendingApproval,
   type QueuedRun,
-  type TurnRuntime,
 } from "./core-bridge";
 import { errMessage } from "../../chassis/src/errors";
 import { browserRenderableImage, fieldSelect } from "./ui";
@@ -570,7 +569,8 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     const compact = Boolean(ctx.pane) || isPhone();
     const turnRuntime = ctx.chat.turnRuntime();
     const routed =
-      turnRuntime?.routedBy &&
+      turnRuntime?.change &&
+      !("agent" in turnRuntime.change && turnRuntime.change.agent === "scope") &&
       (turnRuntime.harnessId !== selectedModel.harnessId || turnRuntime.modelId !== selectedModel.model.id)
         ? turnRuntime
         : undefined;
@@ -1902,10 +1902,12 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     ctx.chat.drawActiveChat(agent);
   }
 
-  function adoptTurnRuntime(runtime: TurnRuntime, agent: Agent): void {
-    const selected = currentModelOption();
-    if (selected && selected.harnessId === runtime.harnessId && selected.model.id === runtime.modelId) return;
-    selectModel(`${runtime.harnessId}:${runtime.modelId}`, agent);
+  async function followScopeDefault(agent: Agent): Promise<void> {
+    if (ctx.chat.state.threadRef) forgetThreadPick(ctx.chat.state.threadRef);
+    effortOverride = undefined;
+    fastModeOverride = undefined;
+    restoredLoadout = undefined;
+    await refreshRuntimeSelection(ctx.chat.state.scopeId, agent, true);
   }
 
   function selectModel(value: string, agent: Agent): void {
@@ -2118,7 +2120,7 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     resizeComposer,
     currentModelOption,
     followsDefault,
-    adoptTurnRuntime,
+    followScopeDefault,
     carryModelPick,
     refreshRuntimeSelection,
     onDragEnter,

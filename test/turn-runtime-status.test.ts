@@ -54,7 +54,7 @@ test("a run reports the runtime its turn runs on while working and after it fini
       const live = (await built.app.getRun(queued.runId!))?.runtime;
       assert.ok(live?.modelId);
       if (model) assert.equal(live.modelId, model);
-      assert.equal(live.routedBy, undefined);
+      assert.equal(live.change, undefined);
       release();
       await built.runs.waitFor(queued.runId!, 5000);
       assert.deepEqual((await built.runs.get(queued.runId!))?.result?.runtime, live);
@@ -84,7 +84,7 @@ test("a runtime the agent switches to mid-turn is reported as its switch", async
     await ready;
     const live = (await built.app.getRun(queued.runId!))?.runtime;
     assert.equal(live?.modelId, "claude-haiku-5-5");
-    assert.equal(live.switchedBy, "agent");
+    assert.deepEqual(live.change, { agent: "task" });
     release();
     await built.runs.waitFor(queued.runId!, 5000);
     assert.deepEqual((await built.runs.get(queued.runId!))?.result?.runtime, live);

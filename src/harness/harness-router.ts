@@ -298,7 +298,7 @@ export function createHarnessRouter(
           harnessId: choice.harnessId,
           modelId: choice.modelId,
           ...(label ? { label } : {}),
-          ...(routedBy ? { routedBy } : {}),
+          ...(routedBy ? { change: { rule: routedBy } } : {}),
         });
         const adapter = adapters.get(choice.harnessId);
         if (!adapter) throw new Error(`harness ${choice.harnessId} is unavailable`);

@@ -784,8 +784,7 @@ export interface TurnRuntime {
   harnessId: string;
   modelId: string;
   label?: string;
-  routedBy?: string;
-  switchedBy?: "agent";
+  change?: { rule: string } | { agent: "task" | "scope" };
 }
 
 export interface TurnResult {

@@ -720,7 +720,7 @@ test("the personal-account picker preserves composer choices and saves context d
     await composer!.refreshRuntimeSelection(null, agent, true);
     await mount();
     assert.equal(composer!.followsDefault(), true, "a chat on the default leaves the model to the server");
-    const routed = { harnessId: "pi", modelId: "beta", label: "Beta", routedBy: "hard-task" };
+    const routed = { harnessId: "pi", modelId: "beta", label: "Beta", change: { rule: "hard-task" } };
     (ctx.chat as unknown as { turnRuntime: () => unknown }).turnRuntime = () => routed;
     draw();
     assert.equal(host.querySelector(".loadout-button .menu-label")?.textContent?.trim(), "Beta");
@@ -734,17 +734,25 @@ test("the personal-account picker preserves composer choices and saves context d
     await mount();
     assert.equal(composer!.followsDefault(), false, "an explicit pick is sent with each message");
     assert.match(button(".loadout-button").getAttribute("aria-label")!, /^Model: Beta, /);
-    (ctx.chat as unknown as { turnRuntime: () => unknown }).turnRuntime = () => null;
-    ctx.chat.state.threadRef = "web:tester:switched";
+    ctx.chat.state.threadRef = "web:tester:server-default";
     await mount();
-    assert.equal(composer!.followsDefault(), true);
-    composer!.adoptTurnRuntime({ harnessId: "pi", modelId: "beta", switchedBy: "agent" }, agent);
-    assert.equal(composer!.followsDefault(), false, "a model the agent switched to stays this chat's setting");
-    assert.match(button(".loadout-button").getAttribute("aria-label")!, /^Model: Beta, /);
-    assert.deepEqual(JSON.parse(localStorage.getItem("web-ui:model-picks")!).at(-1), [
-      "web:tester:switched",
-      "pi:beta",
-    ]);
+    (ctx.chat as unknown as { turnRuntime: () => unknown }).turnRuntime = () => ({
+      harnessId: "pi",
+      modelId: "beta",
+      change: { agent: "task" },
+    });
+    draw();
+    assert.equal(
+      button(".loadout-button").getAttribute("aria-label"),
+      "Model: Beta, switched for this request; your setting is Gamma",
+    );
+    (ctx.chat as unknown as { turnRuntime: () => unknown }).turnRuntime = () => ({
+      harnessId: "pi",
+      modelId: "beta",
+      change: { agent: "scope" },
+    });
+    draw();
+    assert.match(button(".loadout-button").getAttribute("aria-label")!, /^Model: Gamma, /);
   } finally {
     resetContext?.();
     composer?.dispose();
