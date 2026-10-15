@@ -34,5 +34,9 @@ test("admins set up a connector source before voice or work questions", () => {
   assert.match(PROACTIVE_OPENER_PROMPT, /first step is connecting their tools/);
   assert.ok(onboarding.indexOf("Connector source first for admins") < onboarding.indexOf("Slack bot first for admins"));
   assert.match(onboarding, /Never ask for the key or client\s+secrets in chat/);
-  assert.match(onboarding, /\/admin\/credentials[\s\S]*\/v1\/keychain\/drops[\s\S]*\/admin\/connectors/);
+  assert.match(onboarding, /GET \/v1\/admin\/connector-sources/);
+  assert.match(onboarding, /unknown, not absent/);
+  assert.doesNotMatch(onboarding, /\]\(\/admin\//);
+  assert.match(admin, /setup\.composioCredentialUrl[\s\S]*\/v1\/keychain\/drops[\s\S]*setup\.oauthAppsUrl/);
+  assert.match(admin, /Never ask regular users to configure a source/);
 });

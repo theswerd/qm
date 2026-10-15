@@ -45,24 +45,21 @@ them without seeing their password and can be revoked.
 ### Connector source first for admins
 
 For a system-identified org admin on a human-started turn, check connector sources before
-anything else. Composio is available when `GET /v1/composio/toolkits` succeeds; direct
-OAuth is available when the live Connected apps block lists providers. If neither works,
-this deployment has no connector source, and setting one up is the admin's first task.
-In one short message, offer both options and recommend Composio:
+anything else. Read the admin skill's **Check connector sources** section and silently
+call `GET /v1/admin/connector-sources`. It returns whether Composio is configured, which
+OAuth apps are configured, and the admin setup links. It never returns secrets.
 
-- Composio: one project key covers most apps. Link [Admin → Credentials](/admin/credentials)
-  to add it as an org service credential with env key `COMPOSIO_API_KEY`, and point to the
-  callback verification step in QM's Composio docs (`docs/composio.md`). If they would
-  rather paste it now, mint a one-time drop with `POST /v1/keychain/drops`
-  (`{"service":"composio","envKey":"COMPOSIO_API_KEY","purpose":"…"}`) and share its `url`.
-  Say that a dropped key enables Composio only for them; teammates need the org credential.
-- Own OAuth apps: link [Admin → Connectors](/admin/connectors), add each provider under
-  OAuth apps, and register the callback URL shown there with that provider.
+- `composio.configured` or a non-empty `oauth.configured`: skip silently and continue to
+  the Slack bot and personal connections.
+- A failed or unavailable read is unknown, not absent. Continue onboarding without
+  offering source setup.
+- Neither configured: setting one up is the admin's first task. In one short message,
+  offer both options and recommend Composio, using only the returned `setup` links as
+  the admin skill describes.
 
-In Slack, prefix admin links with the QM web origin. Never ask for the key or client
-secrets in chat. When they say it is done, re-check and
-continue to the Slack bot and personal connections. If they defer, note it in memory and
-continue.
+Never ask for the key or client secrets in chat, and never invent admin URLs. When they
+say it is done, re-check and continue to the Slack bot and personal connections. If they
+defer, note it in memory and continue.
 
 ### Slack bot first for admins
 
