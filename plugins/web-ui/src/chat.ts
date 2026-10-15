@@ -90,6 +90,7 @@ import {
   forkOriginDetails,
   forkCutSeq,
   forkSession,
+  cancelSessionGoal,
   inheritedRefreshEntries,
   inheritedTranscript,
   loadInheritedTranscript,
@@ -121,7 +122,7 @@ import {
   buildTimeline,
   messageWorkTimeline,
   workTimelineSegments,
-  streamingTextTail,
+  streamedAnswer,
   currentTextPhase,
   postSpeechText,
   toolCategory,
@@ -148,16 +149,17 @@ import {
 } from "./model-options";
 import {
   attachmentGallery,
+  avatarTpl,
   browserRenderableImage,
   chipBadge,
   copyText,
   formatBytes,
-  icon,
   relTime,
   sheenLabel,
   waveLoader,
   workingWave,
 } from "./ui";
+import { icon } from "./icons";
 import { appState, renderSidebarTop, switchView, syncUrlFromState } from "./shell";
 import { contextsState, scopeTitle } from "./contexts";
 import { openProjectPage, scopeToolCount, sessionTopbarTpl, setScopedSession } from "./session-scope";
@@ -172,7 +174,6 @@ import {
   renderList,
   sessionsState,
   sessionSlackUrl,
-  surfaceOf,
   openSession,
   syncWorkingPulse,
 } from "./sessions";
@@ -184,10 +185,11 @@ import {
   isAbandonedNewChat,
   shouldStartProactiveOpener,
   markWorking,
+  surfaceOf,
   watchActivityLabel,
 } from "./session-list";
 import { liveTurnThreadRef } from "./working-dot";
-import { goalElapsedLabel, goalObjectiveLabel, goalWorkedLabel, latestGoal } from "./goal-strip";
+import { goalElapsedLabel, goalObjectiveLabel, goalWorkedLabel, type GoalStripState } from "./goal-strip";
 import {
   ackKey,
   peekLines,
@@ -255,7 +257,7 @@ const connectedConnectors = new Set<string>();
 const redrawHooks = new Set<() => void>();
 let proactiveOpenerStarted = false;
 
-export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export function markConnectorConnected(provider: string): void {
   if (!provider) return;
@@ -277,6 +279,7 @@ export function createChatSurface(
   const transcriptFetcher = dependencies.fetchTranscript ?? fetchTranscript;
   const sessionOpener = dependencies.openSession ?? openSession;
 
+  const goalCancels = new Map<string, "pending" | "done">();
   const chatState = {
     agent: null as Agent | null,
     host: null as HTMLElement | null,
@@ -289,6 +292,7 @@ export function createChatSurface(
     rememberedScopeId: null as string | null,
     rememberedContextName: null as string | null,
     liveWork: null as WorkBlock | null,
+    goal: null as GoalStripState | null,
     pendingSend: null as string | null,
     normalStreamFn: null as Agent["streamFn"] | null,
     onWork: null as ((work: WorkBlock) => void) | null,
@@ -352,6 +356,21 @@ export function createChatSurface(
     if (!chatState.labelSpeakers) return undefined;
     const speaker = (message as { speaker?: string }).speaker;
     return typeof speaker === "string" && speaker.trim() ? speaker.trim() : undefined;
+  }
+
+  function speakerMember(message: AgentMessage): { principalId: string; avatarUrl?: string } | undefined {
+    const speakerId = (message as { speakerId?: string }).speakerId;
+    if (!speakerId) return undefined;
+    const project = contextsState.list.find((c) => c.scopeId === chatState.scopeId)?.project;
+    return project?.members.find((m) => m.principalId === speakerId);
+  }
+
+  function speakerLabelTpl(speaker: string | undefined, message: AgentMessage): TemplateResult | typeof nothing {
+    if (!speaker) return nothing;
+    const member = speakerMember(message);
+    return html`<div class="speaker-label">
+      ${avatarTpl({ key: member?.principalId ?? speaker, name: speaker, avatarUrl: member?.avatarUrl })}${speaker}
+    </div>`;
   }
   let transcriptRefreshGeneration = 0;
   const forkOriginController = createForkOriginController({
@@ -529,6 +548,7 @@ export function createChatSurface(
     chatState.earlierCount = 0;
     chatState.loadingEarlier = false;
     chatState.pins = [];
+    chatState.goal = null;
     chatState.host = document.createElement("div");
     chatState.host.className = "custom-chat";
 
@@ -872,6 +892,7 @@ export function createChatSurface(
       if (last?.stopReason === "error" && !hasRecordedRunReply(page.entries ?? [], last.interruptedRunId!))
         return drawActiveChat(agent);
       chatState.pins = page.pins ?? [];
+      chatState.goal = page.goal ?? null;
       const split = inheritedTranscript(chatState.forkSession ?? {}, page.entries ?? []);
       const messages = entriesToMessages(split.current, transcriptModel());
       const refreshedInherited = inheritedRefreshEntries(
@@ -1100,6 +1121,7 @@ export function createChatSurface(
     if (!sameSession) {
       chatState.inheritedExpanded = false;
       chatState.pins = [];
+      chatState.goal = null;
     }
     syncLocation();
 
@@ -1290,6 +1312,11 @@ export function createChatSurface(
         </div>
       </article>
     `;
+  }
+
+  function setGoal(goal: GoalStripState | null): void {
+    chatState.goal = goal;
+    if (chatState.agent) drawActiveChat(chatState.agent);
   }
 
   function setPins(pins: SessionPin[]): void {
@@ -1619,7 +1646,6 @@ export function createChatSurface(
         ? chatState.forkSession.forkedFrom
         : undefined;
     return sessionTopbarTpl({
-      status: session?.status,
       sessionId: chatState.sessionId ?? session?.id,
       crumb,
       title,
@@ -1705,7 +1731,8 @@ export function createChatSurface(
     if (!cacheable) return chatMessage(message, index, isStreaming);
     const forkable = Boolean(chatState.threadRef && chatState.sessionId && chatState.agent);
     const forking = pendingFork !== null;
-    const speakerLabel = speakerLabelFor(message);
+    const speaker = speakerLabelFor(message);
+    const speakerLabel = speaker && `${speaker}\n${speakerMember(message)?.avatarUrl ?? ""}`;
     const edited = Boolean((message as { edited?: boolean }).edited);
     const deleted = Boolean((message as { deleted?: boolean }).deleted);
     const day = new Date().toDateString();
@@ -1789,7 +1816,7 @@ export function createChatSurface(
           text: `${messageText(message)}${edited || deleted ? ` (${deleted ? "deleted" : "edited"})` : ""}`,
           index,
           entrySeqs: messageEntrySeqs(message).join(" "),
-          before: html`${speaker ? html`<div class="speaker-label">${speaker}</div>` : nothing}${attachmentGallery(attachments, (attachment) => browserRenderableImage(attachment.mimeType), userAttachmentBadge)}`,
+          before: html`${speakerLabelTpl(speaker, message)}${attachmentGallery(attachments, (attachment) => browserRenderableImage(attachment.mimeType), userAttachmentBadge)}`,
           after: sendFailure
             ? html`<div class="send-failure">
                 <span>${sendFailure}</span
@@ -1806,7 +1833,7 @@ export function createChatSurface(
           data-index=${index}
           data-entry-seqs=${messageEntrySeqs(message).join(" ")}
         >
-          ${speaker ? html`<div class="speaker-label">${speaker}</div>` : nothing}
+          ${speakerLabelTpl(speaker, message)}
           ${attachmentGallery(attachments, (attachment) => browserRenderableImage(attachment.mimeType), userAttachmentBadge)}
           <div
             class="message-bubble user-bubble ${deleted ? "deleted-bubble" : ""}"
@@ -1857,22 +1884,23 @@ export function createChatSurface(
     }
     if (role === "system-note") {
       const note = message as unknown as HistorySystemNote;
-      const who = note.speaker ?? "The user";
-      return html`
+      const row = (body: TemplateResult) => html`
         <article
           class="message-row system-note-row"
           data-index=${index}
           data-entry-seqs=${messageEntrySeqs(message).join(" ")}
         >
-          <div class="system-note">
-            ${
-              note.action === "deleted"
-                ? html`${who} deleted their message`
-                : html`${who} edited their message: <span class="system-note-text">${note.content}</span>`
-            }
-          </div>
+          <div class="system-note">${body}</div>
         </article>
       `;
+      if (note.note === "goal_cancelled")
+        return row(html`Goal cancelled: <span class="system-note-text">${goalObjectiveLabel(note.content)}</span>`);
+      const who = note.speaker ?? "The user";
+      return row(
+        note.action === "deleted"
+          ? html`${who} deleted their message`
+          : html`${who} edited their message: <span class="system-note-text">${note.content}</span>`,
+      );
     }
     if (role === "assistant") {
       const msg = message as AssistantMessage;
@@ -1888,10 +1916,11 @@ export function createChatSurface(
       let workView: TemplateResult | typeof nothing =
         work && steeringOnly.length ? html`${steeringOnly.map((item) => renderTimelineItem(item, work))}` : nothing;
       if (showWork) {
+        const workText = isStreaming ? messageText(msg) : text;
         workView = workBlock(
           work,
           isStreaming,
-          msg.stopReason === "aborted" || msg.stopReason === "error" ? "" : text,
+          msg.stopReason === "aborted" || msg.stopReason === "error" ? "" : workText,
           (msg as AssistantWork).streamingBaseline ?? "",
         );
       }
@@ -2117,7 +2146,7 @@ export function createChatSurface(
         const streamingFinal = isStreaming && phase?.phase === "final_answer";
         const workActive =
           hasWork && isStreaming && !streamingFinal && (work?.status === "working" || work?.status === "thinking");
-        const text = streamingFinal ? chunk.text.slice(phase.streamOffset) : chunk.text;
+        const text = isStreaming && work ? streamedAnswer(chunk.text, work) : chunk.text;
         for (const [partIndex, part] of setupContent(
           assistantDisplayText(workActive ? "" : text, message.stopReason),
         ).entries()) {
@@ -2144,7 +2173,7 @@ export function createChatSurface(
           if (body.trim())
             parts.push(
               html`<div class="streaming-text ${animating ? "live-stream" : ""}" dir="auto">
-                ${markdown(body, animating, streamingFinal ? ((message as AssistantWork).streamingBaseline ?? "").slice(phase.streamOffset) : ((message as AssistantWork).streamingBaseline ?? ""))}
+                ${markdown(body, animating, isStreaming && work ? streamedAnswer((message as AssistantWork).streamingBaseline ?? "", work) : ((message as AssistantWork).streamingBaseline ?? ""))}
               </div>`,
             );
           for (const link of links) parts.push(connectorWidget(link));
@@ -2185,9 +2214,7 @@ export function createChatSurface(
   }
 
   function syncWorkTicker(): void {
-    const goalTicking = Boolean(
-      chatState.agent?.state.isStreaming && latestGoal(visibleMessages(chatState.agent))?.status === "active",
-    );
+    const goalTicking = Boolean(chatState.agent?.state.isStreaming && currentGoal()?.status === "active");
     const active =
       (chatState.liveWork?.status === "working" && !chatState.liveWork.stale) || goalTicking || subagentUi.ticking;
     if (active && !workTicker) {
@@ -2198,7 +2225,12 @@ export function createChatSurface(
     }
   }
 
+  function currentGoal(): GoalStripState | null {
+    return chatState.liveWork?.goal ?? chatState.goal;
+  }
+
   function clearLiveWork(): void {
+    if (chatState.liveWork?.goal) chatState.goal = chatState.liveWork.goal;
     chatState.liveWork = null;
     chatState.pendingSend = null;
     syncWorkTicker();
@@ -2666,10 +2698,30 @@ export function createChatSurface(
     `;
   }
 
+  async function cancelGoal(agent: Agent, goal: GoalStripState): Promise<void> {
+    const sessionId = chatState.sessionId;
+    const key = `${sessionId}:${goal.createdAt}`;
+    if (!sessionId || goalCancels.has(key)) return;
+    goalCancels.set(key, "pending");
+    drawActiveChat(agent);
+    try {
+      await cancelSessionGoal(sessionId);
+      goalCancels.set(key, "done");
+      if (agent === chatState.agent) await refreshTranscriptFromEntries(agent);
+    } catch (err) {
+      goalCancels.delete(key);
+      ctx.composer.state.error = errMessage(err, "Could not cancel the goal.");
+    } finally {
+      if (agent === chatState.agent) drawActiveChat(agent);
+    }
+  }
+
   function goalStrip(agent: Agent): TemplateResult | typeof nothing {
     const messages = visibleMessages(agent);
-    const goal = latestGoal(messages);
+    const goal = currentGoal();
     if (!goal) return nothing;
+    const cancel = goalCancels.get(`${chatState.sessionId}:${goal.createdAt}`);
+    if (cancel === "done") return nothing;
     const { workedMs, paused: stopped } = goalWorked(messages, goal);
     const paused = goal.status === "paused" || (goal.status === "active" && stopped);
     if (goal.status !== "active" && !paused) return nothing;
@@ -2682,6 +2734,16 @@ export function createChatSurface(
         <span class="goal-strip-title">${title}</span>
         <span class="goal-strip-objective" dir="auto">${goalObjectiveLabel(goal.objective)}</span>
         <span class="goal-strip-meta">${goalWorkedLabel(workedMs, goal.floor)}</span>
+        <button
+          type="button"
+          class="chip-x"
+          aria-label="Cancel goal"
+          ${tip("Cancel goal")}
+          ?disabled=${cancel === "pending"}
+          @click=${() => void cancelGoal(agent, goal)}
+        >
+          ${icon(X, 13)}
+        </button>
       </section>
     `;
   }
@@ -2817,7 +2879,7 @@ export function createChatSurface(
         replies.push(speech);
         return false;
       });
-      const tail = active && last ? streamingTextTail(text, work.activity) : "";
+      const tail = active && last ? streamedAnswer(text, work) : "";
       const stopping = isStreaming && runSlot.stopGeneration === runSlot.generation;
       const animating = active && last && !stopping;
       let label = last ? workLabel(work) : "Worked";
@@ -2878,7 +2940,7 @@ export function createChatSurface(
                       },
                     ),
                 )}
-                ${tail.trim() ? html`<div class="work-said streaming-text ${animating ? "live-stream" : ""}">${markdown(tail, animating, streamingTextTail(baseline, work.activity))}</div>` : nothing}
+                ${tail.trim() ? html`<div class="work-said streaming-text ${animating ? "live-stream" : ""}">${markdown(tail, animating, streamedAnswer(baseline, work))}</div>` : nothing}
               </div>
             </details>`
           : nothing;
@@ -3443,6 +3505,7 @@ export function createChatSurface(
     drawActiveChat,
     setTranscriptWindow,
     setPins,
+    setGoal,
     requestBackgroundPanel,
     activePendingApprovals,
     hasUnresolvedApproval,
