@@ -1,3 +1,4 @@
+import { reportHandledError } from "./browser-errors.ts";
 import { fetchUiState, putUiState } from "./core-bridge";
 
 const PIN_LATEST_PROMPT_KEY = "pin-latest-prompt";
@@ -53,7 +54,7 @@ function apply(key: ChatPrefKey, value: boolean): void {
 function write(key: ChatPrefKey, value: boolean): void {
   touched.add(key);
   apply(key, value);
-  void putUiState(key, value, Date.now()).catch(() => void 0);
+  void putUiState(key, value, Date.now()).catch((error: unknown) => reportHandledError("web:save_chat_pref", error));
 }
 
 export function pinLatestPrompt(): boolean {
@@ -84,8 +85,8 @@ export async function loadChatPrefs(): Promise<void> {
         const rec = await fetchUiState(key);
         if (touched.has(key)) return;
         apply(key, typeof rec.value === "boolean" ? rec.value : DEFAULTS[key]);
-      } catch {
-        void 0;
+      } catch (error) {
+        reportHandledError("web:load_chat_pref", error);
       }
     }),
   );

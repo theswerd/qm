@@ -1,5 +1,6 @@
 import { emojiCompletion } from "./emoji-completion";
 import { alwaysSteer } from "./chat-prefs";
+import { reportHandledError } from "./browser-errors.ts";
 import { appEditSlug } from "./app-edit";
 import { runtimeConfigKey, loadRuntimeConfig, saveRuntimeConfig, subscribeRuntimeConfig } from "./runtime-config-store";
 import { getRuntimeConfig } from "./runtime-config-cache.ts";
@@ -792,31 +793,14 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
         ${icon(ArrowUp, 16)}
       </button>`;
     }
+    const label = alwaysSteer() && canSteer(agent) ? "Steer the running task" : "Queue for after this turn";
     return html`
       <button class="stop-btn" type="button" aria-label="Stop" ${tip("Stop")} @click=${() => stopStreaming(agent)}>
         ${icon(Square, 16)}
       </button>
-      ${
-        alwaysSteer() && canSteer(agent)
-          ? html`<button
-              class="send-btn"
-              type="submit"
-              ${tip("Steer the running task")}
-              aria-label="Steer the running task"
-              ?disabled=${!composerCanSend()}
-            >
-              ${icon(CornerDownRight, 16)}
-            </button>`
-          : html`<button
-              class="send-btn"
-              type="submit"
-              ${tip("Queue for after this turn")}
-              aria-label="Queue for after this turn"
-              ?disabled=${!composerCanSend()}
-            >
-              ${icon(ArrowUp, 16)}
-            </button>`
-      }
+      <button class="send-btn" type="submit" ${tip(label)} aria-label=${label} ?disabled=${!composerCanSend()}>
+        ${icon(ArrowUp, 16)}
+      </button>
     `;
   }
 
@@ -1546,6 +1530,7 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
         unmarkSteering(threadRef, queued.runId);
       }
     } catch (err) {
+      reportHandledError("web:steer_queued", err);
       if (agent === ctx.chat.state.agent && threadRef === ctx.chat.state.threadRef)
         composerState.error = errMessage(err, "Could not confirm steering. Try again.");
     } finally {
