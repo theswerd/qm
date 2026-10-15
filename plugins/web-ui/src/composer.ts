@@ -1,5 +1,4 @@
 import { emojiCompletion } from "./emoji-completion";
-import { alwaysSteer } from "./chat-prefs";
 import { reportHandledError } from "./browser-errors.ts";
 import { appEditSlug } from "./app-edit";
 import { runtimeConfigKey, loadRuntimeConfig, saveRuntimeConfig, subscribeRuntimeConfig } from "./runtime-config-store";
@@ -31,6 +30,7 @@ import {
   type CoreAttachment,
   type PendingApproval,
   type QueuedRun,
+  alwaysSteer,
 } from "./core-bridge";
 import { errMessage } from "../../chassis/src/errors";
 import { browserRenderableImage, fieldSelect } from "./ui";

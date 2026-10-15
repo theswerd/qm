@@ -43,6 +43,7 @@ import {
   type CoreSession,
   type PendingApproval,
   type TranscriptPage,
+  loadChatPrefs,
 } from "./core-bridge";
 import { seedRuntimeConfig } from "./runtime-config-store";
 import { errMessage, swallow } from "../../chassis/src/errors";
@@ -107,7 +108,6 @@ import {
 import { openSkillById, renderSkills, resetActiveSkill, routeSkillsHistory } from "./skills";
 import { watchAppAnnotations } from "./app-annotations";
 import { applyTheme, renderSettings, loadOpenNewChat, watchSystemTheme } from "./settings";
-import { loadChatPrefs } from "./chat-prefs";
 import { contextsState, ensureContexts, renderContexts, resetContextsState, resolveProjectScope } from "./contexts";
 import { appState, can, canView, isView, type AuthMode, type Me, type View } from "./shell-state";
 import { trapDialogFocus } from "./dialog-focus";

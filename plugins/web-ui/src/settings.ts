@@ -1,7 +1,16 @@
 import "./onboarding-welcome";
 import "./slack-account";
 import { openModelConnectManager, type StatusResponse } from "./model-connect";
-import { api, fetchUiState, putUiState, withBase } from "./core-bridge";
+import {
+  alwaysSteer,
+  api,
+  fetchUiState,
+  pinLatestPrompt,
+  putUiState,
+  setAlwaysSteer,
+  setPinLatestPrompt,
+  withBase,
+} from "./core-bridge";
 import { html, nothing, render, type TemplateResult } from "lit";
 import { Download, ExternalLink, LogOut, Monitor, Moon, ShieldUser, Sun, type IconNode } from "lucide";
 import { icon } from "./icons";
@@ -9,7 +18,6 @@ import { ADMIN_HOME_URL, appState, can, signOut } from "./shell";
 import { sessionsState, setWebOnly } from "./sessions";
 import { errMessage } from "../../chassis/src/errors";
 import { importTheme, isPalette, themeCss, themeTokens, type Palette } from "./theme-import";
-import { alwaysSteer, pinLatestPrompt, setAlwaysSteer, setPinLatestPrompt } from "./chat-prefs";
 
 type ThemeChoice = "light" | "dark" | "system" | "custom";
 

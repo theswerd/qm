@@ -73,7 +73,7 @@ test("chat preference rows persist to per-user ui-state", async (t) => {
   try {
     const { appState } = await vite.ssrLoadModule("/src/shell-state.ts");
     const { renderSettings } = await vite.ssrLoadModule("/src/settings.ts");
-    const prefs = await vite.ssrLoadModule("/src/chat-prefs.ts");
+    const prefs = await vite.ssrLoadModule("/src/core-bridge.ts");
     appState.me = { user: "alice", org: "acme" };
     appState.currentView = "settings";
     appState.mainEl = document.querySelector("#app");

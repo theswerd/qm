@@ -117,6 +117,8 @@ import {
   type TurnOptions,
   type WorkBlock,
   fileContentUrl,
+  onChatPrefsChange,
+  pinLatestPrompt,
 } from "./core-bridge";
 import {
   buildTimeline,
@@ -207,7 +209,6 @@ import { goalWorked, workSeconds, workedLabel } from "./work-duration";
 import { decorateTextCodeBlocks } from "./text-code";
 
 import { createTranscriptViewport } from "./transcript-viewport";
-import { onChatPrefsChange, pinLatestPrompt } from "./chat-prefs";
 import { suggestedActivities } from "./suggested-activities";
 import { reportHandledError } from "./browser-errors.ts";
 

@@ -54,7 +54,7 @@ test("a mid-run send with the steer preference steers at once and queues only wh
     const { appState } = await vite.ssrLoadModule("/src/shell-state.ts");
     const { createComposerSurface } = await vite.ssrLoadModule("/src/composer.ts");
     const { seedRuntimeConfig, invalidateRuntimeConfigs } = await vite.ssrLoadModule("/src/runtime-config-store.ts");
-    const { setAlwaysSteer } = await vite.ssrLoadModule("/src/chat-prefs.ts");
+    const { setAlwaysSteer } = await vite.ssrLoadModule("/src/core-bridge.ts");
     const { render } = await vite.ssrLoadModule("lit");
     appState.me = { user: "tester", org: "test" };
     const model = {
