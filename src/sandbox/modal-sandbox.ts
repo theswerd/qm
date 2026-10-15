@@ -251,6 +251,11 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
       lastActivityMs: Date.now(),
       orgId: configOrgId(),
     });
+    const terminateOrphan = (): Promise<unknown> =>
+      session.terminate().then(
+        () => store.merge(scope, { hydrationPending: false }),
+        (err: unknown) => reportError("sandbox_hydrate", "orphan_terminate_failed", errMessage(err), scope),
+      );
     let hydrated: boolean;
     try {
       if (previous?.nativeSnapshotId) {
@@ -264,10 +269,7 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
       await store.merge(scope, { recoveryError: errMessage(e) });
       reportError("sandbox_hydrate", "hydrate_failed", errMessage(e), scope);
       sessionByName.delete(name);
-      await session.terminate().then(
-        () => store.merge(scope, { hydrationPending: false }),
-        (err: unknown) => reportError("sandbox_hydrate", "orphan_terminate_failed", errMessage(err), scope),
-      );
+      await terminateOrphan();
       throw new Error(`modal provision: home hydration failed (${errMessage(e)}); not risking the stored snapshot`, {
         cause: e,
       });
@@ -275,10 +277,7 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
     const marked = await session.runCommand(`touch ${shq(HYDRATED_MARKER)}`, { timeoutMs: 30_000 });
     if (marked.exitCode !== 0) {
       sessionByName.delete(name);
-      await session.terminate().then(
-        () => store.merge(scope, { hydrationPending: false }),
-        (err: unknown) => reportError("sandbox_hydrate", "orphan_terminate_failed", errMessage(err), scope),
-      );
+      await terminateOrphan();
       throw new Error(`modal provision: could not mark the sandbox hydrated: ${marked.stderr.slice(0, 200)}`);
     }
     await store.merge(scope, { hydrationPending: false });
@@ -380,11 +379,7 @@ export function createModalSandbox(workspace: WorkspaceStore, opts: ModalSandbox
         }
       }
 
-      try {
-        onStatus?.("Creating the sandbox…");
-      } catch (error) {
-        void error;
-      }
+      onStatus?.("Creating the sandbox…");
       return createHydrated(scope, name);
     });
   }

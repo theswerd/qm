@@ -271,7 +271,14 @@ export function createAwsSandbox(workspace: WorkspaceStore, opts: AwsSandboxOpti
             .catch((e: unknown) => reportError("sandbox_snapshot", "rotate_snapshot_failed", errMessage(e), scope));
           await api
             .terminate(stored.microvmId)
-            .catch((e: unknown) => reportError("sandbox_teardown", "rotate_terminate_failed", errMessage(e), scope));
+            .catch((e: unknown) =>
+              reportError(
+                "sandbox_teardown",
+                "rotate_terminate_failed",
+                `${stored.microvmId} left running: ${errMessage(e)}`,
+                scope,
+              ),
+            );
         }
       }
       const body = await launchBody(scope);

@@ -92,7 +92,7 @@ export async function openManagedAgentsTunnel(opts: ManagedAgentsTunnelOptions):
             local.pause();
             ws.send(chunk, (err) => {
               if (!err) return void local.resume();
-              fail(`send failed: ${err.message}`);
+              if (failure === null) fail(`send failed: ${err.message}`);
               local.destroy();
             });
           });

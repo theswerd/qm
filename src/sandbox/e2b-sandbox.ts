@@ -6,7 +6,7 @@ import type { DurableMap } from "../persistence/durable-map.ts";
 import { createMemoryMap } from "../persistence/durable-map.ts";
 import { createNoopAdvisoryLock, type AdvisoryLock } from "../persistence/advisory-lock.ts";
 import { createKeyedQueue } from "../util/async.ts";
-import { swallow, swallowAs, errMessage } from "../util/errors.ts";
+import { swallowAs, errMessage } from "../util/errors.ts";
 import { shq } from "../util/shell.ts";
 import { nonInteractiveShellPrefix, DROPPED_PROXY_ENV, forceThroughProxyEnv } from "./sandbox-env.ts";
 import { createExecProcessSessions, type ExecProcessIo } from "./exec-process-session.ts";
@@ -194,11 +194,7 @@ export function createE2bSandbox(workspace: WorkspaceStore, opts: E2bSandboxOpti
       if (stored?.nativePause) {
         if (!stored.recoverySnapshotId)
           throw new Error("e2b sandbox is gone; explicitly import a recovery snapshot before replacing its home");
-        try {
-          onStatus?.("Restoring the sandbox from its recovery snapshot…");
-        } catch (error) {
-          swallow("e2b-sandbox: status callback", error);
-        }
+        onStatus?.("Restoring the sandbox from its recovery snapshot…");
         let session: E2bSession;
         try {
           session = await client.create({
@@ -222,11 +218,7 @@ export function createE2bSandbox(workspace: WorkspaceStore, opts: E2bSandboxOpti
         });
         return adopt(session);
       }
-      try {
-        onStatus?.("Creating the sandbox…");
-      } catch (error) {
-        swallow("e2b-sandbox: status callback", error);
-      }
+      onStatus?.("Creating the sandbox…");
       const session = await client.create({ metadata: { name }, autoPause: true });
       sessionByName.set(name, session);
       await store.put(scope, {

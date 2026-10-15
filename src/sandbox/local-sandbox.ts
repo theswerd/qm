@@ -514,13 +514,16 @@ export function createLocalSandbox(workspace: WorkspaceStore, opts: LocalSandbox
 
         if (handle.scratch) {
           for (const [k, name] of scratchByKey) if (name === handle.id) scratchByKey.delete(k);
-          if (tdOpts?.destroy) await remove(["rm", "-f", handle.id]);
-          else await remove(["rm", "-f", handle.id]).catch(swallowAs("local-sandbox: scratch rm", undefined));
-          await disconnectCore(localNetworkName(handle.id));
-          await remove(["network", "rm", localNetworkName(handle.id)]).catch(
-            swallowAs("local-sandbox: scratch network rm", undefined),
-          );
-          portByName.delete(handle.id);
+          try {
+            if (tdOpts?.destroy) await remove(["rm", "-f", handle.id]);
+            else await remove(["rm", "-f", handle.id]).catch(swallowAs("local-sandbox: scratch rm", undefined));
+          } finally {
+            await disconnectCore(localNetworkName(handle.id));
+            await remove(["network", "rm", localNetworkName(handle.id)]).catch(
+              swallowAs("local-sandbox: scratch network rm", undefined),
+            );
+            portByName.delete(handle.id);
+          }
           return;
         }
 

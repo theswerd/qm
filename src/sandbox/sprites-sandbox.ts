@@ -467,11 +467,7 @@ export function createSpritesSandbox(workspace: WorkspaceStore, opts: SpritesSan
           return { coldStart: false };
         }
         await initializationStore.put(name, { pending: true });
-        try {
-          onStatus?.("Preparing the sandbox…");
-        } catch (error) {
-          void error;
-        }
+        onStatus?.("Preparing the sandbox…");
         const scope = base.scopeFor(name);
         try {
           if (!exists) await attempt(`create ${name}`, () => client.createSprite(name, { waitForCapacity: true }));

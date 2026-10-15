@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { WorkspaceLayer } from "../types.ts";
 import type { WorkspaceStore } from "../workspace/workspace-store.ts";
 import { createKeyedQueue, fetchWithRetry, sleep } from "../util/async.ts";
-import { withRequestId, swallow, swallowAs, errMessage } from "../util/errors.ts";
+import { withRequestId, swallowAs, errMessage } from "../util/errors.ts";
 import { NonRetryableTurnError } from "../core/turn-error.ts";
 import { shq } from "../util/shell.ts";
 import { nonInteractiveShellPrefix } from "./sandbox-env.ts";
@@ -420,11 +420,7 @@ export function createAgent37Sandbox(workspace: WorkspaceStore, opts: Agent37San
           if (existing.status !== "running") await ensureRunning(existing.id);
           return { coldStart: false };
         }
-        try {
-          onStatus?.("Creating the sandbox…");
-        } catch (error) {
-          swallow("agent37-sandbox: status callback", error);
-        }
+        onStatus?.("Creating the sandbox…");
         const info = await createInstance(name);
         idByName.set(name, info.id);
         return { coldStart: true };
