@@ -456,6 +456,10 @@ export interface TurnRuntime {
   change?: { rule: string } | { agent: "task" | "scope" };
 }
 
+export function switchedDefault(runtime: TurnRuntime | null | undefined): boolean {
+  return !!runtime?.change && "agent" in runtime.change && runtime.change.agent === "scope";
+}
+
 export function workPausedForApproval(work: WorkBlock): boolean {
   const last = work.activity.at(-1);
   return (

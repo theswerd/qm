@@ -118,6 +118,7 @@ import {
   type TurnRuntime,
   type WorkBlock,
   fileContentUrl,
+  switchedDefault,
 } from "./core-bridge";
 import {
   buildTimeline,
@@ -926,13 +927,11 @@ export function createChatSurface(
     return (work: WorkBlock) => {
       if (agent !== chatState.agent) return;
       appendConsumedSteers(agent.state.messages, work);
-      const change = work.runtime?.change;
       if (
-        change &&
-        "agent" in change &&
-        change.agent === "scope" &&
-        (work.runtime!.harnessId !== chatState.turnRuntime?.harnessId ||
-          work.runtime!.modelId !== chatState.turnRuntime.modelId)
+        work.runtime &&
+        switchedDefault(work.runtime) &&
+        (work.runtime.harnessId !== chatState.turnRuntime?.harnessId ||
+          work.runtime.modelId !== chatState.turnRuntime.modelId)
       )
         void ctx.composer.followScopeDefault(agent);
       if (work.runtime) chatState.turnRuntime = work.runtime;

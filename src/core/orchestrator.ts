@@ -3161,7 +3161,7 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
             await loadRuntimeAuth(choice));
           requestedRuntime = userModelOverride ? { ...choice, modelId: userModelOverride } : choice;
         };
-        if (restoredRuntime) await adoptRuntime(restoredRuntime, "task");
+        if (restoredRuntime) await adoptRuntime(restoredRuntime.choice, restoredRuntime.lifetime);
         if (automatedTurn && input.model && inputHarness) {
           const error = await deps.validateScheduledRuntime?.(
             scopeId,

@@ -29,6 +29,7 @@ import {
   type CoreAttachment,
   type PendingApproval,
   type QueuedRun,
+  switchedDefault,
 } from "./core-bridge";
 import { errMessage } from "../../chassis/src/errors";
 import { browserRenderableImage, fieldSelect } from "./ui";
@@ -488,10 +489,7 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
           effortSelectionRevision === effortRevision &&
           fastSelectionRevision === fastRevision
         ) {
-          if (ctx.chat.state.threadRef) forgetThreadPick(ctx.chat.state.threadRef);
-          effortOverride = undefined;
-          fastModeOverride = undefined;
-          restoredLoadout = undefined;
+          clearChatSelection();
         }
       }
       syncRuntimeSelection(agent);
@@ -570,7 +568,7 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     const turnRuntime = ctx.chat.turnRuntime();
     const routed =
       turnRuntime?.change &&
-      !("agent" in turnRuntime.change && turnRuntime.change.agent === "scope") &&
+      !switchedDefault(turnRuntime) &&
       (turnRuntime.harnessId !== selectedModel.harnessId || turnRuntime.modelId !== selectedModel.model.id)
         ? turnRuntime
         : undefined;
@@ -1902,11 +1900,15 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
     ctx.chat.drawActiveChat(agent);
   }
 
-  async function followScopeDefault(agent: Agent): Promise<void> {
+  function clearChatSelection(): void {
     if (ctx.chat.state.threadRef) forgetThreadPick(ctx.chat.state.threadRef);
     effortOverride = undefined;
     fastModeOverride = undefined;
     restoredLoadout = undefined;
+  }
+
+  async function followScopeDefault(agent: Agent): Promise<void> {
+    clearChatSelection();
     await refreshRuntimeSelection(ctx.chat.state.scopeId, agent, true);
   }
 
