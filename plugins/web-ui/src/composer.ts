@@ -1521,13 +1521,18 @@ export function createComposerSurface(ctx: ConvCtx, options: ComposerOptions = {
             timestamp: Date.now(),
           } as unknown as AgentMessage);
         }
-      } else if (outcome.reason === "queued_changed") {
-        if (agent === ctx.chat.state.agent && threadRef === ctx.chat.state.threadRef)
-          composerState.error = "The queued message changed. Try steering it again.";
       } else if (outcome.reason === "queued_started" || outcome.reason === "not_found") {
         fallBackToQueue = false;
         forgetQueuedRun(threadRef, queued.runId);
         unmarkSteering(threadRef, queued.runId);
+      } else {
+        reportHandledError("web:steer_refused", new Error(outcome.reason ?? "steer refused"));
+        if (
+          outcome.reason === "queued_changed" &&
+          agent === ctx.chat.state.agent &&
+          threadRef === ctx.chat.state.threadRef
+        )
+          composerState.error = "The queued message changed. Try steering it again.";
       }
     } catch (err) {
       reportHandledError("web:steer_queued", err);
