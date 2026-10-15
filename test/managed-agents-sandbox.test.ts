@@ -7,7 +7,6 @@ import { pollProcess } from "../src/sandbox/process-poll.ts";
 import {
   createManagedAgentsSandbox,
   QM_TEMPLATE_TOOLS,
-  transferPath,
   type StoredManagedAgentsSandbox,
 } from "../src/sandbox/managed-agents-sandbox.ts";
 import {
@@ -392,15 +391,6 @@ const awsCredential = (value: string) => ({
   save: async (): Promise<void> => {},
 });
 
-test("transfers outside the workspace fail locally and name the path", () => {
-  for (const bad of ["/tmp/qm-credentials.abc/home/.aws/credentials", "/etc/hosts", "/workspace/../tmp/x", "relative"])
-    assert.throws(
-      () => transferPath(bad),
-      (e: Error) => e.message.includes(`cannot reach ${bad}.`),
-    );
-  assert.equal(transferPath("/workspace/.qm-scratch/export.tar"), "/workspace/.qm-scratch/export.tar");
-});
-
 test("the guest refuses a transfer outside the workspace, the way the platform does", async () => {
   await sandbox.provision(layers);
   const current = fake.current(scopeName());
@@ -410,36 +400,35 @@ test("the guest refuses a transfer outside the workspace, the way the platform d
   await assert.rejects(() => session.readFileBytes("/tmp/nope.txt"), /path outside workspace/);
 });
 
-test("per-command credential files stage where the backend can transfer them", async () => {
+const relayLeftovers = async (h: Awaited<ReturnType<Sandbox["provision"]>>): Promise<string> =>
+  (await sandbox.run(h, "ls -a /workspace | grep -c '^.qm-transfer' || true")).stdout.trim();
+
+test("per-command credential files outside the workspace stage through the transfer relay", async () => {
   const h = await sandbox.provision(layers);
   const prepared = await prepareExecutionFiles(sandbox, h, [awsCredential("key=abc")]);
-  assert.ok(
-    prepared.plan.directory.startsWith("/workspace/"),
-    `credentials staged outside the workspace: ${prepared.plan.directory}`,
-  );
   const read = await sandbox.run(h, `cat ${prepared.env.HOME}/.aws/credentials`);
   assert.equal(read.code, 0);
   assert.equal(read.stdout.trim(), "key=abc");
   await prepared.finish();
+  assert.equal(await relayLeftovers(h), "0");
 });
 
-test("the stale credential sweep clears old credential directories from the scratch directory", async () => {
+test("an upload through the relay clears relay files a crash left behind", async () => {
   const h = await sandbox.provision(layers);
-  const stale = "/workspace/.qm-scratch/qm-credentials.stale";
-  await sandbox.run(h, `mkdir -p ${stale} && touch -d '3 hours ago' ${stale}`);
+  await sandbox.run(h, "touch -d '3 hours ago' /workspace/.qm-transfer.stale");
   const prepared = await prepareExecutionFiles(sandbox, h, [awsCredential("key=sweep")]);
-  const left = await sandbox.run(h, `test -e ${stale} && echo present || echo gone`);
-  assert.equal(left.stdout.trim(), "gone");
   await prepared.finish();
+  assert.equal(await relayLeftovers(h), "0");
 });
 
-test("exporting the computer works when transfer is confined to the workspace", async () => {
+test("exporting the computer reads its archive through the transfer relay", async () => {
   const h = await sandbox.provision(layers);
   await sandbox.writeFile(h, "notes/export-me.txt", "exported");
   const entries = await sandbox.exportFiles!(h, { include: ["workspace"] });
   const found = entries.find((e) => e.path.endsWith("export-me.txt"));
   assert.ok(found, "expected the written file to appear in the export");
   assert.equal(Buffer.from(found!.data).toString("utf8"), "exported");
+  assert.equal(await relayLeftovers(h), "0");
 });
 
 test("process sessions stream output through the data plane exec path", async () => {

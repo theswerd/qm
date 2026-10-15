@@ -25,7 +25,7 @@ import {
   type CredentialPathSpec,
 } from "../credentials/resident-paths.ts";
 import { killableScript, killScript } from "./exec-kill.ts";
-import { hasParentPathSegment, scratchDirFor, visibleNotInstalled, visibleTools } from "./sandbox.ts";
+import { hasParentPathSegment, visibleNotInstalled, visibleTools } from "./sandbox.ts";
 import { sandboxScopeName } from "./exec-sandbox-base.ts";
 import {
   ManagedAgentsCommandLostError,
@@ -54,7 +54,7 @@ import type {
 
 const WORKSPACE_ROOT = "/workspace";
 const HOME_DIR = `${WORKSPACE_ROOT}/home`;
-const SCRATCH_DIR = `${WORKSPACE_ROOT}/.qm-scratch`;
+const TRANSFER_RELAY_BASENAME = ".qm-transfer.";
 const WORKSPACE_BASENAME = "workspace";
 const RO_LAYERS_TAR = ".ro-layers.tar";
 const RO_LAYERS_MANIFEST = ".ro-layers.manifest";
@@ -66,14 +66,8 @@ const CHECKPOINT_LABEL = "qm teardown";
 
 export const QM_TEMPLATE_TOOLS = ["jq", "rg", "unzip", "wget"];
 
-export function transferPath(absPath: string): string {
-  const inside = absPath === WORKSPACE_ROOT || absPath.startsWith(`${WORKSPACE_ROOT}/`);
-  if (!inside || hasParentPathSegment(absPath))
-    throw new Error(
-      `do-managed-agents transfers files only under ${WORKSPACE_ROOT}, so it cannot reach ${absPath}. ` +
-        `Temporary files this backend has to read back or write belong in ${SCRATCH_DIR}, which exec and transfer both see.`,
-    );
-  return absPath;
+function transfersDirectly(absPath: string): boolean {
+  return (absPath === WORKSPACE_ROOT || absPath.startsWith(`${WORKSPACE_ROOT}/`)) && !hasParentPathSegment(absPath);
 }
 
 export interface StoredManagedAgentsSandbox {
@@ -311,7 +305,6 @@ export function createManagedAgentsSandbox(workspace: WorkspaceStore, opts: Mana
     processSessions: true,
     parksOnTeardown: true,
     egressEnforcement: opts.egressProxyUrl ? "domain" : "none",
-    scratchDir: SCRATCH_DIR,
     spec: {
       os: "Linux — DigitalOcean Managed Agents Firecracker microVM (provider pause preserves state; publish durable work to git or Files)",
       runtimes: ["Node", "Python 3"],
@@ -337,10 +330,33 @@ export function createManagedAgentsSandbox(workspace: WorkspaceStore, opts: Mana
   };
   const procSessions = createExecProcessSessions(procIo);
 
-  const writeAbsBytes = (name: string, absPath: string, data: Uint8Array): Promise<void> =>
-    withSession(name, (session) => session.writeFileBytes(transferPath(absPath), data));
-  const readAbsBytes = (name: string, absPath: string): Promise<Uint8Array | null> =>
-    withSession(name, (session) => session.readFileBytes(transferPath(absPath)));
+  const relayFailure = (what: string, r: ExecResult): Error =>
+    new Error(`do-managed-agents ${what} failed: ${r.stderr.trim() || `exit ${r.code}`}`);
+  const writeAbsBytes = async (name: string, absPath: string, data: Uint8Array): Promise<void> => {
+    if (transfersDirectly(absPath)) return withSession(name, (session) => session.writeFileBytes(absPath, data));
+    const relay = `${WORKSPACE_ROOT}/${TRANSFER_RELAY_BASENAME}${randomUUID()}`;
+    await withSession(name, (session) => session.writeFileBytes(relay, data));
+    const moved = await execRaw(
+      name,
+      `find ${WORKSPACE_ROOT} -maxdepth 1 -name ${shq(`${TRANSFER_RELAY_BASENAME}*`)} -mmin +120 -delete 2>/dev/null; mkdir -p "$(dirname ${shq(absPath)})" && mv -f ${shq(relay)} ${shq(absPath)} || { rm -f ${shq(relay)}; exit 1; }`,
+      60,
+    );
+    if (moved.code !== 0) throw relayFailure(`write ${absPath}`, moved);
+  };
+  const readAbsBytes = async (name: string, absPath: string): Promise<Uint8Array | null> => {
+    if (transfersDirectly(absPath)) return withSession(name, (session) => session.readFileBytes(absPath));
+    const relay = `${WORKSPACE_ROOT}/${TRANSFER_RELAY_BASENAME}${randomUUID()}`;
+    const copied = await execRaw(name, `test -f ${shq(absPath)} || exit 3; cp ${shq(absPath)} ${shq(relay)}`, 60);
+    if (copied.code === 3) return null;
+    if (copied.code !== 0) throw relayFailure(`read ${absPath}`, copied);
+    try {
+      return await withSession(name, (session) => session.readFileBytes(relay));
+    } finally {
+      await execRaw(name, `rm -f ${shq(relay)}`, 60).catch(
+        swallowAs("managed-agents-sandbox: transfer relay cleanup", undefined),
+      );
+    }
+  };
   const installLayerTools = opts.layerToolFiles ? createLayerToolInstaller(opts.layerToolFiles) : null;
 
   const execFileOps = createExecFileOps({
@@ -354,7 +370,6 @@ export function createManagedAgentsSandbox(workspace: WorkspaceStore, opts: Mana
     exec: (id, script, t) => execRaw(id, script, t),
     readAbsBytes,
     defaultHomeDir: HOME_DIR,
-    scratchDir: scratchDirFor(profile),
     ephemeralCredentialPrefixes: ephemeralCredLinkPaths(opts.credentialPaths ?? []).map(({ rel }) => rel),
   });
 
